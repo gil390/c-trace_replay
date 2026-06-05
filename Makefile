@@ -8,6 +8,9 @@ REPORT=$(OUT)/$(FUNC)_report.json
 ANNOTATIONS=$(OUT)/$(FUNC)_annotations.required.json
 HARNESS_CAPTURE=$(OUT)/harness_compute_capture.c
 HARNESS_REPLAY=$(OUT)/harness_compute_replay.c
+CAPTURE_BIN=$(OUT)/capture_compute
+REPLAY_BIN=$(OUT)/replay_compute
+SAMPLE_BIN=$(OUT)/sample_main
 
 .PHONY: all analyze generate capture replay test clean show-report show-warnings sample-run
 
@@ -20,22 +23,22 @@ generate: analyze
 	python3 tools/generate_harness.py $(REPORT) $(OUT)
 
 capture_compute: generate $(HARNESS_CAPTURE) $(SRC) $(HDR)
-	$(CC) $(CFLAGS) -o capture_compute $(HARNESS_CAPTURE) $(SRC)
+	$(CC) $(CFLAGS) -o $(CAPTURE_BIN) $(HARNESS_CAPTURE) $(SRC)
 
 replay_compute: generate $(HARNESS_REPLAY) $(SRC) $(HDR)
-	$(CC) $(CFLAGS) -o replay_compute $(HARNESS_REPLAY) $(SRC)
+	$(CC) $(CFLAGS) -o $(REPLAY_BIN) $(HARNESS_REPLAY) $(SRC)
 
 capture: capture_compute
-	./capture_compute
+	./$(CAPTURE_BIN)
 
 replay: replay_compute
-	./replay_compute
+	./$(REPLAY_BIN)
 
 test: capture replay
 
 sample-run:
-	$(CC) $(CFLAGS) -o sample_main examples/sample_main.c examples/sample.c
-	./sample_main
+	$(CC) $(CFLAGS) -o $(SAMPLE_BIN) examples/sample_main.c examples/sample.c
+	./$(SAMPLE_BIN)
 
 show-report: analyze
 	python3 -m json.tool $(REPORT)
@@ -44,5 +47,4 @@ show-warnings: analyze
 	python3 -m json.tool $(ANNOTATIONS)
 
 clean:
-	rm -f capture_compute replay_compute sample_main
 	rm -rf generated/* testcases/case_001
