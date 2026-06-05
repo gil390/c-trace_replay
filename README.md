@@ -91,9 +91,22 @@ capturer ou rejouer un etat incomplet.
 
 ## Etat actuel de l'analyseur
 
-L'analyseur actuel dans `tools/analyze.py` utilise des expressions regulieres.
-Il est suffisant pour demontrer le workflow sur l'exemple fourni, mais il reste
-limite pour du code C reel.
+L'analyseur actuel dans `tools/analyze.py` tente d'abord d'utiliser
+Clang/libclang pour parcourir un vrai AST C. Si les dependances Clang ne sont
+pas disponibles, il bascule temporairement sur l'ancien analyseur par
+expressions regulieres afin de ne pas casser le workflow existant.
+
+Le backend utilise est indique a l'execution :
+
+```text
+backend: clang
+```
+
+ou, si Clang n'est pas encore installe :
+
+```text
+backend: regex-fallback
+```
 
 Il sait notamment detecter dans des cas simples :
 
@@ -106,7 +119,7 @@ Il sait notamment detecter dans des cas simples :
 
 Ses limites principales sont :
 
-- pas de vrai parsing C ;
+- le backend Clang doit etre installe pour obtenir une vraie analyse AST ;
 - gestion fragile des macros et typedefs complexes ;
 - analyse limitee des expressions multi-lignes ;
 - pas d'analyse interprocedurale complete ;
@@ -115,9 +128,9 @@ Ses limites principales sont :
 
 ## Passage a un vrai AST C avec Clang
 
-Pour faire evoluer le projet vers du code C reel, l'etape naturelle est de
-remplacer les heuristiques de `tools/analyze.py` par une analyse basee sur
-Clang/libclang.
+Pour faire evoluer le projet vers du code C reel, `tools/analyze.py` contient
+une premiere implementation basee sur Clang/libclang. Elle sera utilisee
+automatiquement lorsque les dependances seront installees.
 
 Clang fournit un AST C fiable : il comprend les types, les declarations, les
 fonctions, les expressions, les appels, les acces tableaux, les champs de
@@ -133,7 +146,7 @@ Puis installer les bindings Python dans le virtualenv du projet :
 
 ```bash
 source venv/bin/activate
-pip install clang
+pip install -r requirements.txt
 ```
 
 Verifier que l'import Python fonctionne :
@@ -142,25 +155,20 @@ Verifier que l'import Python fonctionne :
 python -c "from clang.cindex import Index; print('libclang OK')"
 ```
 
-Si Python ne trouve pas automatiquement `libclang.so`, indiquer explicitement
-son chemin dans le futur analyseur :
+Si les bindings sont installes dans le virtualenv, lancer les commandes `make`
+avec ce Python :
 
-```python
-from clang.cindex import Config
-
-Config.set_library_file("/usr/lib/libclang.so")
+```bash
+make show-report PYTHON=venv/bin/python
 ```
 
-Exemple minimal de parsing :
+Si Python ne trouve pas automatiquement `libclang.so`, l'analyseur essaie deja
+plusieurs chemins courants, dont :
 
-```python
-from clang.cindex import Index
-
-index = Index.create()
-translation_unit = index.parse(
-    "examples/sample.c",
-    args=["-Iexamples", "-std=c11"],
-)
+```text
+/usr/lib/libclang.so
+/usr/lib/llvm/lib/libclang.so
+/usr/lib/llvm-18/lib/libclang.so
 ```
 
 L'objectif est de conserver le meme contrat JSON qu'aujourd'hui :
@@ -239,9 +247,9 @@ pour `compute()` tant que la generation du harness n'utilise pas vraiment
 | Haute | Decrire les donnees d'entree dans un format externe | Remplacer les valeurs codees en dur (`Context`, `input`, `len`) par un cas de test ou des annotations. | A faire |
 | Moyenne | Rendre les noms des fichiers captures generiques | Eviter les noms specialises comme `ctx_before.bin` ou `output_expected.bin`. | A faire |
 | Moyenne | Generaliser la comparaison de replay | Comparer automatiquement les sorties et globaux ecrits d'apres le `write_set`. | A faire |
-| Moyenne | Ajouter une dependance Python `clang` | Preparer la migration vers une analyse AST C. | A faire |
-| Moyenne | Recrire `tools/analyze.py` avec libclang | Remplacer les regex par un vrai parcours d'AST C. | A faire |
-| Moyenne | Ajouter une analyse lecture/ecriture basee sur le contexte AST | Distinguer correctement lectures, ecritures et operations `inout`. | A faire |
+| Moyenne | Ajouter une dependance Python `clang` | Preparer la migration vers une analyse AST C. | Fait |
+| Moyenne | Recrire `tools/analyze.py` avec libclang | Remplacer les regex par un vrai parcours d'AST C. | En cours |
+| Moyenne | Ajouter une analyse lecture/ecriture basee sur le contexte AST | Distinguer correctement lectures, ecritures et operations `inout`. | En cours |
 | Moyenne | Signaler les appels non analyses comme ambigus | Produire des warnings ou annotations lorsqu'un pointeur est passe a une fonction non analysee. | A faire |
 | Basse | Ajouter des exemples C plus varies | Tester pointeurs, structs imbriquees, retours non-`int`, macros, appels indirects et buffers dynamiques. | A faire |
 | Basse | Ajouter des tests automatises sur les rapports JSON | Verifier que l'analyse produit les `read_set` / `write_set` attendus. | A faire |

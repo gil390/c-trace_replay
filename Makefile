@@ -1,4 +1,5 @@
 CC=gcc
+PYTHON?=python3
 CFLAGS=-Wall -Wextra -std=c11 -Iexamples
 SRC?=examples/sample.c
 HDR?=examples/sample.h
@@ -17,10 +18,10 @@ SAMPLE_BIN=$(OUT)/sample_main
 all: test
 
 analyze:
-	python3 tools/analyze.py $(SRC) $(HDR) $(FUNC) $(OUT)
+	$(PYTHON) tools/analyze.py $(SRC) $(HDR) $(FUNC) $(OUT)
 
 generate: analyze
-	python3 tools/generate_harness.py $(REPORT) $(OUT)
+	$(PYTHON) tools/generate_harness.py $(REPORT) $(OUT)
 
 capture_compute: generate $(HARNESS_CAPTURE) $(SRC) $(HDR)
 	$(CC) $(CFLAGS) -o $(CAPTURE_BIN) $(HARNESS_CAPTURE) $(SRC)
@@ -41,10 +42,10 @@ sample-run:
 	./$(SAMPLE_BIN)
 
 show-report: analyze
-	python3 -m json.tool $(REPORT)
+	$(PYTHON) -m json.tool $(REPORT)
 
 show-warnings: analyze
-	python3 -m json.tool $(ANNOTATIONS)
+	$(PYTHON) -m json.tool $(ANNOTATIONS)
 
 clean:
 	rm -rf generated/* testcases/case_001
