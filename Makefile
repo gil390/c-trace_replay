@@ -1,21 +1,29 @@
 CC=gcc
 CFLAGS=-Wall -Wextra -std=c11 -Iexamples
+SRC?=examples/sample.c
+HDR?=examples/sample.h
+FUNC?=compute
+OUT?=generated
+REPORT=$(OUT)/$(FUNC)_report.json
+ANNOTATIONS=$(OUT)/$(FUNC)_annotations.required.json
+HARNESS_CAPTURE=$(OUT)/harness_compute_capture.c
+HARNESS_REPLAY=$(OUT)/harness_compute_replay.c
 
 .PHONY: all analyze generate capture replay test clean show-report show-warnings sample-run
 
 all: test
 
 analyze:
-	python3 tools/analyze.py examples/sample.c examples/sample.h compute generated
+	python3 tools/analyze.py $(SRC) $(HDR) $(FUNC) $(OUT)
 
 generate: analyze
-	python3 tools/generate_harness.py generated/compute_report.json generated
+	python3 tools/generate_harness.py $(REPORT) $(OUT)
 
-capture_compute: generate generated/harness_compute_capture.c examples/sample.c examples/sample.h
-	$(CC) $(CFLAGS) -o capture_compute generated/harness_compute_capture.c examples/sample.c
+capture_compute: generate $(HARNESS_CAPTURE) $(SRC) $(HDR)
+	$(CC) $(CFLAGS) -o capture_compute $(HARNESS_CAPTURE) $(SRC)
 
-replay_compute: generate generated/harness_compute_replay.c examples/sample.c examples/sample.h
-	$(CC) $(CFLAGS) -o replay_compute generated/harness_compute_replay.c examples/sample.c
+replay_compute: generate $(HARNESS_REPLAY) $(SRC) $(HDR)
+	$(CC) $(CFLAGS) -o replay_compute $(HARNESS_REPLAY) $(SRC)
 
 capture: capture_compute
 	./capture_compute
@@ -30,10 +38,10 @@ sample-run:
 	./sample_main
 
 show-report: analyze
-	python3 -m json.tool generated/compute_report.json
+	python3 -m json.tool $(REPORT)
 
 show-warnings: analyze
-	python3 -m json.tool generated/annotations.required.json
+	python3 -m json.tool $(ANNOTATIONS)
 
 clean:
 	rm -f capture_compute replay_compute sample_main

@@ -6,14 +6,18 @@ if len(sys.argv) != 5:
     print('usage: analyze.py <source.c> <header.h> <function> <outdir>', file=sys.stderr)
     sys.exit(2)
 
-src_path, hdr_path, func, outdir = map(Path, sys.argv[1:])
+src_path = Path(sys.argv[1])
+hdr_path = Path(sys.argv[2])
+func_name = sys.argv[3]
+outdir = Path(sys.argv[4])
 outdir.mkdir(parents=True, exist_ok=True)
 src = src_path.read_text()
 hdr = hdr_path.read_text()
 
 report = {
     'source': str(src_path),
-    'function': str(func),
+    'function': func_name,
+    'return_type': None,
     'parameters': [],
     'globals_read': [],
     'globals_written': [],
@@ -24,21 +28,37 @@ report = {
     'annotation_required': []
 }
 
+FUNC_DECL_RE = re.compile(
+    r'(?P<return_type>[A-Za-z_][\w\s\*]*?)\s+'
+    + re.escape(func_name)
+    + r'\s*\((?P<params>[^)]*)\)\s*(?P<end>[;{])',
+    re.MULTILINE
+)
+
+def parse_param(param):
+    param = param.strip()
+    if not param or param == 'void':
+        return None
+    param = re.sub(r'\[[^\]]*\]\s*$', ' *', param).strip()
+    m = re.match(r'(?P<type>.+?[\s\*]+)(?P<name>[A-Za-z_]\w*)$', param)
+    if not m:
+        return {'name': param.split()[-1].replace('*', '').strip(), 'type': param}
+    typ = re.sub(r'\s+', ' ', m.group('type')).strip()
+    return {'name': m.group('name'), 'type': typ}
+
 # function prototype params
-m = re.search(r'int\s+'+re.escape(func.name)+r'\s*\(([^)]*)\)', hdr+"\n"+src)
 params = []
+m = FUNC_DECL_RE.search(hdr + "\n" + src)
 if m:
-    for p in m.group(1).split(','):
-        p = p.strip()
-        if not p or p == 'void': continue
-        name = p.split()[-1].replace('*','').strip()
-        typ = p[:p.rfind(name)].strip() if name in p else p
-        params.append({'name': name, 'type': typ})
+    report['return_type'] = re.sub(r'\s+', ' ', m.group('return_type')).strip()
+    for p in m.group('params').split(','):
+        parsed = parse_param(p)
+        if parsed:
+            params.append(parsed)
 report['parameters'] = params
-param_names = {p['name'] for p in params}
 
 # Extract function body approximately
-fm = re.search(r'int\s+'+re.escape(func.name)+r'\s*\([^)]*\)\s*\{', src)
+fm = next((match for match in FUNC_DECL_RE.finditer(src) if match.group('end') == '{'), None)
 if not fm:
     report['warnings'].append({'level':'error','message':'function body not found'})
 else:
@@ -138,7 +158,7 @@ else:
         if w['symbol'] in report['globals_written'] and not any(x['symbol']==w['symbol'] for x in report['inferred_captures']['before']):
             report['inferred_captures']['before'].append(w)
 
-(outdir/'compute_report.json').write_text(json.dumps(report, indent=2))
-(outdir/'annotations.required.json').write_text(json.dumps({'annotation_required': report['annotation_required'], 'warnings': report['warnings']}, indent=2))
+(outdir/f'{func_name}_report.json').write_text(json.dumps(report, indent=2))
+(outdir/f'{func_name}_annotations.required.json').write_text(json.dumps({'annotation_required': report['annotation_required'], 'warnings': report['warnings']}, indent=2))
 print('ANALYZE OK')
 print(f"warnings: {len(report['warnings'])}, annotations required: {len(report['annotation_required'])}")

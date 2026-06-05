@@ -70,15 +70,15 @@ make clean
 - `examples/sample_main.c` : programme minimal d'execution directe.
 - `tools/analyze.py` : analyseur actuel, base sur des heuristiques simples.
 - `tools/generate_harness.py` : generation des programmes de capture/replay.
-- `generated/compute_report.json` : rapport d'analyse complet.
-- `generated/annotations.required.json` : warnings et annotations a fournir si besoin.
+- `generated/<fonction>_report.json` : rapport d'analyse complet.
+- `generated/<fonction>_annotations.required.json` : warnings et annotations a fournir si besoin.
 - `generated/harness_compute_capture.c` : harness de capture genere.
 - `generated/harness_compute_replay.c` : harness de replay genere.
 - `testcases/case_001/` : donnees binaires capturees pour le replay.
 
-## Role de `annotations.required.json`
+## Role de `<fonction>_annotations.required.json`
 
-`annotations.required.json` n'est pas une configuration obligatoire du projet.
+`<fonction>_annotations.required.json` n'est pas une configuration obligatoire du projet.
 
 Ce fichier est une sortie de l'analyseur. Il sert a indiquer ce que l'analyse
 automatique ne sait pas deduire avec certitude : taille d'un pointeur, direction
@@ -176,8 +176,8 @@ L'objectif est de conserver le meme contrat JSON qu'aujourd'hui :
 - `warnings`
 - `annotation_required`
 
-Ainsi, `tools/generate_harness.py` pourra continuer a consommer
-`generated/compute_report.json` sans changement majeur pendant la migration.
+Ainsi, `tools/generate_harness.py` pourra continuer a consommer le rapport
+`generated/<fonction>_report.json` sans changement majeur pendant la migration.
 
 ## Etapes conseillees pour migrer vers Clang
 
@@ -218,13 +218,22 @@ Le replay recharge ces fichiers, execute a nouveau `compute()`, puis compare :
 - le contenu de `output` ;
 - la valeur finale de `g_counter`.
 
+## Exemple pour analyser une fonction Toto
+
+> make show-report FUNC=toto OUT=/tmp/c_trace_replay_toto
+
 ## TODO
+
+Les trois premieres taches de generalisation sont terminees cote analyse et
+nommage des rapports. Le workflow capture/replay complet reste encore specialise
+pour `compute()` tant que la generation du harness n'utilise pas vraiment
+`report["function"]` et `report["parameters"]`.
 
 | Priorite | Tache | Objectif | Etat |
 | --- | --- | --- | --- |
-| Haute | Parametrer la fonction cible dans le `Makefile` | Permettre `make test FUNC=autre_fonction` au lieu de coder `compute` en dur. | A faire |
-| Haute | Generer les rapports avec le nom de la fonction | Produire par exemple `generated/<fonction>_report.json` au lieu de toujours ecrire `compute_report.json`. | A faire |
-| Haute | Supprimer l'hypothese de retour `int` dans `tools/analyze.py` | Analyser aussi des fonctions `void`, `float`, `uint32_t`, pointeurs, structs, etc. | A faire |
+| Haute | Parametrer la fonction cible dans le `Makefile` | Permettre de choisir `FUNC`, `SRC`, `HDR` et `OUT` depuis la ligne de commande. | Fait |
+| Haute | Generer les rapports avec le nom de la fonction | Produire par exemple `generated/<fonction>_report.json` au lieu de toujours ecrire `compute_report.json`. | Fait |
+| Haute | Supprimer l'hypothese de retour `int` dans `tools/analyze.py` | Analyser aussi des fonctions `void`, `float`, `uint32_t`, pointeurs, structs, etc. | Fait |
 | Haute | Utiliser `report["function"]` dans `tools/generate_harness.py` | Eviter que le harness genere appelle toujours `compute()`. | A faire |
 | Haute | Generer les arguments du harness depuis `report["parameters"]` | Construire l'appel de la fonction cible a partir de sa signature reelle. | A faire |
 | Haute | Decrire les donnees d'entree dans un format externe | Remplacer les valeurs codees en dur (`Context`, `input`, `len`) par un cas de test ou des annotations. | A faire |
