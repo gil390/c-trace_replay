@@ -1,331 +1,250 @@
-# c_trace_replay_v3
+# c_trace_replay
 
-Ce projet demontre un workflow de capture/replay pour une fonction C.
+## Objectif
 
-L'objectif est de reduire le besoin d'un fichier `annotations.json` manuel :
-l'analyseur deduit automatiquement les donnees lues et ecrites par la fonction
-cible, puis ne demande des annotations que lorsqu'une ambiguite reste impossible
-a resoudre automatiquement.
+L'objectif du projet est de développer un outil capable d'analyser automatiquement une fonction C afin d'identifier ses dépendances, ses entrées, ses sorties et ses effets de bord.
 
-## Fonctionnement general
+À partir de cette analyse, l'outil génère automatiquement les mécanismes nécessaires pour observer le comportement réel de la fonction, capturer des cas de test représentatifs et les rejouer ultérieurement.
 
-Le pipeline suit ces etapes :
+Ces cas de test permettent de vérifier automatiquement qu'une implémentation reproduit un comportement fonctionnel équivalent, indépendamment de son implémentation interne.
 
-1. analyser le code C de la fonction cible ;
-2. deduire les `read_set` et `write_set` ;
-3. produire un rapport d'analyse complet ;
-4. produire une liste d'annotations requises uniquement en cas d'ambiguite ;
-5. generer un harness de capture si aucune annotation bloquante n'est requise ;
-6. executer la fonction cible et sauvegarder les donnees utiles ;
-7. generer ou compiler un harness de replay ;
-8. rejouer le cas capture ;
-9. comparer le resultat obtenu avec le resultat attendu.
+L'analyse automatique doit être privilégiée autant que possible. Les informations complémentaires ne doivent être demandées que lorsque certaines dépendances ou certains accès mémoire ne peuvent pas être déterminés avec un niveau de confiance suffisant.
 
-Dans l'exemple fourni, la fonction cible est `compute()` dans
-`examples/sample.c`.
+---
 
-## Commandes utiles
+## Principe général
 
-Compiler et executer l'exemple simple :
+Le projet repose sur cinq étapes principales :
 
-```bash
-make sample-run
+### 1. Analyse
+
+Analyse statique de la fonction cible afin d'identifier :
+
+* les paramètres ;
+* les valeurs de retour ;
+* les variables globales lues et écrites ;
+* les accès mémoire ;
+* les structures manipulées ;
+* les fonctions appelées ;
+* les dépendances transitives.
+
+### 2. Construction du modèle comportemental
+
+À partir de l'analyse, l'outil construit :
+
+* un ensemble des données lues (`read_set`) ;
+* un ensemble des données modifiées (`write_set`) ;
+* un graphe de dépendances ;
+* une liste des ambiguïtés éventuelles.
+
+### 3. Génération automatique
+
+L'outil génère automatiquement :
+
+* les mécanismes de capture ;
+* les mécanismes de rejeu ;
+* les programmes de test nécessaires ;
+* les comparateurs de résultats.
+
+### 4. Capture
+
+La fonction est exécutée dans son environnement normal.
+
+Les données nécessaires à la reproduction du comportement sont automatiquement enregistrées.
+
+### 5. Rejeu et validation
+
+Les données capturées sont réinjectées dans une implémentation à vérifier.
+
+L'outil compare automatiquement :
+
+* les valeurs de retour ;
+* les sorties ;
+* les états modifiés ;
+* les effets de bord observables.
+
+Le résultat est exprimé sous la forme :
+
+```text
+PASS
 ```
 
-Lancer l'analyse et afficher le rapport complet :
+ou
+
+```text
+FAIL
+```
+
+---
+
+## Philosophie du projet
+
+Le projet vise à minimiser l'intervention humaine.
+
+L'objectif n'est pas de décrire manuellement les entrées, sorties ou dépendances d'une fonction, mais de les découvrir automatiquement à partir du code source.
+
+Les informations complémentaires ne doivent être demandées que lorsqu'une ambiguïté réelle empêche la construction d'un mécanisme de capture ou de rejeu fiable.
+
+---
+
+## Utilisation
+
+### Analyse d'une fonction
+
+```bash
+make show-report FUNC=<fonction>
+```
+
+### Affichage des ambiguïtés détectées
+
+```bash
+make show-warnings FUNC=<fonction>
+```
+
+### Génération des mécanismes de capture et de rejeu
+
+```bash
+make generate FUNC=<fonction>
+```
+
+### Capture et rejeu
+
+```bash
+make test FUNC=<fonction>
+```
+
+---
+
+## Sorties produites
+
+L'outil génère notamment :
+
+* un rapport d'analyse ;
+* une description des dépendances détectées ;
+* une liste d'ambiguïtés éventuelles ;
+* les programmes de capture ;
+* les programmes de rejeu ;
+* les données capturées ;
+* les résultats de comparaison.
+
+---
+
+## Limites actuelles
+
+Certaines situations restent difficiles à analyser automatiquement :
+
+* structures dynamiques complexes ;
+* listes chaînées ;
+* graphes ;
+* callbacks indirects ;
+* accès mémoire dépendants du contenu ;
+* dépendances externes non visibles dans le code source.
+
+Ces cas sont signalés explicitement afin d'éviter toute conclusion erronée.
+
+---
+
+## Vision long terme
+
+À terme, l'outil doit être capable de construire automatiquement un modèle comportemental complet d'une fonction C, de générer les mécanismes nécessaires à son observation, puis de vérifier l'équivalence fonctionnelle d'implémentations différentes à partir du comportement observé plutôt que de leur structure interne.
+
+---
+
+## État actuel du prototype
+
+Le prototype actuel analyse le code C avec Clang/libclang lorsque les dépendances
+sont disponibles. Il produit un rapport JSON contenant notamment :
+
+* la fonction analysée ;
+* son type de retour ;
+* ses paramètres ;
+* les fonctions appelées ;
+* les variables globales lues et écrites ;
+* les ensembles `read_set` et `write_set` ;
+* les captures déduites avant et après appel ;
+* les ambiguïtés éventuelles dans `annotation_required`.
+
+Le générateur de harness s'appuie ensuite sur deux sources :
+
+* le rapport d'analyse `generated/<fonction>_report.json` ;
+* un fichier de description de cas `testcases/<fonction>.case.json`.
+
+Le fichier `.case.json` décrit les variables à instancier, les arguments à
+passer à la fonction et les bindings entre les symboles détectés par l'analyseur
+et les expressions C à sauvegarder ou comparer.
+
+Le replay compare actuellement :
+
+* la valeur de retour, si la fonction n'est pas `void` ;
+* les zones mémoire associées au `write_set` ;
+* les variables globales modifiées.
+
+Les cas réellement ambigus restent volontairement bloquants. Par exemple, un
+pointeur transmis à une fonction non analysée ou une boucle dépendante du contenu
+mémoire peut produire une entrée dans `annotation_required`.
+
+## Commandes pratiques
+
+Analyser la fonction par défaut, `compute` :
 
 ```bash
 make show-report
 ```
 
-Afficher les warnings et annotations eventuellement requises :
+Analyser une autre fonction :
 
 ```bash
-make show-warnings
+make show-report FUNC=toto
 ```
 
-Lancer le workflow complet capture + replay :
+Afficher uniquement les ambiguïtés et annotations requises :
 
 ```bash
-make test
+make show-warnings FUNC=compute
 ```
 
-Resultat attendu :
-
-```text
-CAPTURE OK: testcase written in testcases/compute_case_001
-REPLAY PASS
-```
-
-Nettoyer les binaires et donnees generees :
+Générer les harness de capture/replay :
 
 ```bash
-make clean
+make generate FUNC=compute
 ```
 
-## Fichiers importants
-
-- `examples/sample.c` : implementation de la fonction `compute()`.
-- `examples/sample.h` : declarations, types et variables globales.
-- `examples/sample_main.c` : programme minimal d'execution directe.
-- `tools/analyze.py` : analyseur AST C base sur Clang/libclang, avec fallback regex.
-- `tools/generate_harness.py` : generation des programmes de capture/replay.
-- `generated/<fonction>_report.json` : rapport d'analyse complet.
-- `generated/<fonction>_annotations.required.json` : warnings et annotations a fournir si besoin.
-- `generated/harness_<fonction>_capture.c` : harness de capture genere.
-- `generated/harness_<fonction>_replay.c` : harness de replay genere.
-- `testcases/<fonction>.case.json` : description externe du cas a capturer/rejouer.
-- `testcases/<fonction>_case_001/` : donnees binaires capturees pour le replay.
-
-## Role de `<fonction>_annotations.required.json`
-
-`<fonction>_annotations.required.json` n'est pas une configuration obligatoire du projet.
-
-Ce fichier est une sortie de l'analyseur. Il sert a indiquer ce que l'analyse
-automatique ne sait pas deduire avec certitude : taille d'un pointeur, direction
-`in` / `out` / `inout`, boucle dependante du contenu memoire, appel de fonction
-non analyse, etc.
-
-Si `annotation_required` est vide, la generation du harness peut continuer.
-Si des annotations sont presentes, la generation s'arrete afin d'eviter de
-capturer ou rejouer un etat incomplet.
-
-## Etat actuel de l'analyseur
-
-L'analyseur actuel dans `tools/analyze.py` tente d'abord d'utiliser
-Clang/libclang pour parcourir un vrai AST C. Si les dependances Clang ne sont
-pas disponibles, il bascule temporairement sur l'ancien analyseur par
-expressions regulieres afin de ne pas casser le workflow existant.
-
-Le backend utilise est indique a l'execution :
-
-```text
-backend: clang
-```
-
-ou, si Clang n'est pas encore installe :
-
-```text
-backend: regex-fallback
-```
-
-Il sait notamment detecter dans des cas simples :
-
-- les parametres de la fonction cible ;
-- certains appels de fonctions ;
-- les lectures de tableaux comme `input[i]` ;
-- les ecritures de tableaux comme `output[i]` ;
-- les acces a des champs de structure comme `ctx->scale` ;
-- les lectures et ecritures de variables globales comme `g_mode` ou `g_counter`.
-
-Ses limites principales sont :
-
-- le backend Clang doit etre installe pour obtenir une vraie analyse AST ;
-- gestion fragile des macros et typedefs complexes ;
-- analyse limitee des expressions multi-lignes ;
-- pas d'analyse interprocedurale complete ;
-- detection approximative du contexte lecture/ecriture ;
-- generation de harness encore specialisee pour `compute()`.
-
-## Passage a un vrai AST C avec Clang
-
-Pour faire evoluer le projet vers du code C reel, `tools/analyze.py` contient
-une premiere implementation basee sur Clang/libclang. Elle sera utilisee
-automatiquement lorsque les dependances seront installees.
-
-Clang fournit un AST C fiable : il comprend les types, les declarations, les
-fonctions, les expressions, les appels, les acces tableaux, les champs de
-structures, les variables globales et les informations issues du preprocessing.
-
-Sur Arch Linux, installer Clang cote systeme :
+Capturer puis rejouer un cas :
 
 ```bash
-sudo pacman -S clang
+make test FUNC=compute
 ```
 
-Puis installer les bindings Python dans le virtualenv du projet :
+Tester le même pipeline sur `toto` :
 
 ```bash
-source venv/bin/activate
-pip install -r requirements.txt
+make test FUNC=toto
 ```
 
-Verifier que l'import Python fonctionne :
-
-```bash
-python -c "from clang.cindex import Index; print('libclang OK')"
-```
-
-Si les bindings sont installes dans le virtualenv, lancer les commandes `make`
-avec ce Python :
-
-```bash
-make show-report PYTHON=venv/bin/python
-```
-
-Si Python ne trouve pas automatiquement `libclang.so`, l'analyseur essaie deja
-plusieurs chemins courants, dont :
-
-```text
-/usr/lib/libclang.so
-/usr/lib/llvm/lib/libclang.so
-/usr/lib/llvm-18/lib/libclang.so
-```
-
-L'objectif est de conserver le meme contrat JSON qu'aujourd'hui :
-
-- `parameters`
-- `globals_read`
-- `globals_written`
-- `calls`
-- `access_sets.read_set`
-- `access_sets.write_set`
-- `inferred_captures.before`
-- `inferred_captures.after`
-- `warnings`
-- `annotation_required`
-
-Ainsi, `tools/generate_harness.py` pourra continuer a consommer le rapport
-`generated/<fonction>_report.json` sans changement majeur pendant la migration.
-
-## Etapes conseillees pour migrer vers Clang
-
-1. Ajouter une dependance Python `clang` au projet.
-2. Creer une premiere version AST de `tools/analyze.py`.
-3. Trouver la fonction cible dans l'AST par son nom.
-4. Extraire les parametres depuis les noeuds `PARM_DECL`.
-5. Parcourir le corps de la fonction cible.
-6. Detecter les appels via les noeuds `CALL_EXPR`.
-7. Detecter les acces tableaux via les noeuds `ARRAY_SUBSCRIPT_EXPR`.
-8. Detecter les champs de structure via les noeuds `MEMBER_REF_EXPR`.
-9. Identifier les variables globales en distinguant leur declaration d'origine.
-10. Determiner le contexte lecture/ecriture autour des affectations.
-11. Generer les memes fichiers JSON que la version actuelle.
-12. Ajouter des cas de test C plus complexes pour valider l'analyse.
-
-Les cas incertains doivent continuer a produire des warnings ou des entrees dans
-`annotation_required`, par exemple lorsqu'un pointeur est transmis a une fonction
-non analysee ou lorsqu'une taille de buffer ne peut pas etre deduite.
-
-## Description externe des cas
-
-Le generateur de harness lit un fichier `testcases/<fonction>.case.json`.
-Ce fichier decrit les variables du cas, les arguments a passer a la fonction et
-les bindings entre les symboles detectes par l'analyseur et les expressions C a
-sauvegarder ou comparer.
-
-Exemple minimal pour `toto` :
-
-```json
-{
-  "case_dir": "testcases/toto_case_001",
-  "variables": [
-    {"name": "j", "type": "size_t", "init": "5"}
-  ],
-  "bindings": {}
-}
-```
-
-Pour `compute`, `testcases/compute.case.json` decrit notamment `ctx`, `input`,
-`output`, `len`, `g_mode` et `g_counter`. Le generateur utilise ensuite le
-`read_set` pour sauvegarder l'etat avant appel et le `write_set` pour comparer
-l'etat apres replay.
-
-## Sorties generees
-
-Apres `make test`, le dossier `testcases/compute_case_001/` contient les donnees
-necessaires au replay :
-
-- `ctx_before.bin`
-- `input_before.bin`
-- `g_mode_before.bin`
-- `g_counter_before.bin`
-- `output_expected.bin`
-- `g_counter_after.bin`
-- `return_expected.bin`
-- `len.bin`
-
-Le replay recharge ces fichiers, execute a nouveau `compute()`, puis compare :
-
-- la valeur de retour ;
-- le contenu de `output` ;
-- la valeur finale de `g_counter`.
-
-## Exemple pour analyser une fonction Toto
-
-> make show-report FUNC=toto OUT=/tmp/c_trace_replay_toto
-
-## Exemple pour capturer/rejouer Toto
-
-> make test FUNC=toto
-
-## Cas a tester pour la tache 11
-
-Les fichiers `examples/rw_cases.c` et `examples/rw_cases.h` servent de matrice
-de validation pour l'analyse lecture/ecriture basee sur l'AST C.
-
-Commande type :
-
-```bash
-make show-report SRC=examples/rw_cases.c HDR=examples/rw_cases.h FUNC=rw_array_read_write OUT=/tmp/rw_cases
-```
-
-Lancer toute la batterie :
+Lancer la batterie de cas lecture/écriture/inout :
 
 ```bash
 make test-rw-cases
 ```
 
-Les rapports sont generes dans `generated/rw_cases/`.
-
-Verifier automatiquement plusieurs rapports JSON :
+Vérifier automatiquement plusieurs rapports JSON :
 
 ```bash
 make test-reports
 ```
 
-| Fonction | Forme C testee | Attendu |
-| --- | --- | --- |
-| `rw_array_read_write` | `output[i] = input[i]` | `input` lu, `output` ecrit |
-| `rw_array_compound` | `buffer[i] += 1` | `buffer` lu et ecrit |
-| `rw_array_increment` | `buffer[i]++` | `buffer` lu et ecrit |
-| `rw_pointer_read` | `return *src` | `src` lu par dereferencement |
-| `rw_pointer_write` | `*dst = 42` | `dst` ecrit par dereferencement |
-| `rw_pointer_inout` | `*value += 1` | `value` lu et ecrit |
-| `rw_struct_field_read` | `*dst = ctx->value` | `ctx->value` lu, `dst` ecrit |
-| `rw_struct_field_write` | `ctx->value = value` | `ctx->value` ecrit |
-| `rw_struct_field_inout` | `ctx->count += 1` | `ctx->count` lu et ecrit |
-| `rw_struct_array_read` | `output[i] = ctx->table[i % 16]` | `ctx->table` lu, `output` ecrit |
-| `rw_global_read` | `*dst = g_rw_mode` | `g_rw_mode` lu, `dst` ecrit |
-| `rw_global_write` | `g_rw_counter = value` | `g_rw_counter` ecrit |
-| `rw_global_inout` | `g_rw_counter++` | `g_rw_counter` lu et ecrit |
-| `rw_call_with_pointer` | `mutate_buffer(buffer, len)` | appel detecte, effet sur `buffer` ambigu sans analyse du callee |
-| `rw_conditional_read` | lecture dans un `if` | `input` lu, `output` ecrit |
-| `rw_dynamic_index` | `input[i + offset]` | `input` lu avec plage dynamique, `output` ecrit |
-| `rw_content_dependent_loop` | boucle `while (*src)` | `src` lu, `dst` ecrit, taille dependante du contenu |
-| `rw_typedef_array` | buffers avec typedef | `input` lu, `output` ecrit |
-| `rw_nested_struct_field` | champ de structure imbriquee | `outer->inner.value` lu, `dst` ecrit |
-| `rw_macro_write` | ecriture via macro | ambiguite signalee si l'etendue AST est invalide |
-| `rw_function_pointer_call` | callback avec pointeur | appel indirect detecte, effet sur `buffer` ambigu |
+Nettoyer les fichiers générés :
 
-## TODO
+```bash
+make clean
+```
 
-Les taches de generalisation du pipeline de base sont terminees pour les cas
-decrits par un fichier `testcases/<fonction>.case.json`.
+Les principaux fichiers générés sont :
 
-| Numero | Priorite | Tache | Objectif | Etat |
-| --- | --- | --- | --- | --- |
-| 1 | Haute | Parametrer la fonction cible dans le `Makefile` | Permettre de choisir `FUNC`, `SRC`, `HDR` et `OUT` depuis la ligne de commande. | Fait |
-| 2 | Haute | Generer les rapports avec le nom de la fonction | Produire par exemple `generated/<fonction>_report.json` au lieu de toujours ecrire `compute_report.json`. | Fait |
-| 3 | Haute | Supprimer l'hypothese de retour `int` dans `tools/analyze.py` | Analyser aussi des fonctions `void`, `float`, `uint32_t`, pointeurs, structs, etc. | Fait |
-| 4 | Haute | Utiliser `report["function"]` dans `tools/generate_harness.py` | Eviter que le harness genere appelle toujours `compute()`. | Fait |
-| 5 | Haute | Generer les arguments du harness depuis `report["parameters"]` | Construire l'appel de la fonction cible a partir de sa signature reelle. | Fait |
-| 6 | Haute | Decrire les donnees d'entree dans un format externe | Remplacer les valeurs codees en dur (`Context`, `input`, `len`) par un cas de test ou des annotations. | Fait |
-| 7 | Moyenne | Rendre les noms des fichiers captures generiques | Eviter les noms specialises comme `ctx_before.bin` ou `output_expected.bin`. | Fait |
-| 8 | Moyenne | Generaliser la comparaison de replay | Comparer automatiquement les sorties et globaux ecrits d'apres le `write_set`. | Fait |
-| 9 | Moyenne | Ajouter une dependance Python `clang` | Preparer la migration vers une analyse AST C. | Fait |
-| 10 | Moyenne | Recrire `tools/analyze.py` avec libclang | Remplacer les regex par un vrai parcours d'AST C. | Fait |
-| 11 | Moyenne | Ajouter une analyse lecture/ecriture basee sur le contexte AST | Distinguer correctement lectures, ecritures et operations `inout`. | Fait |
-| 12 | Moyenne | Signaler les appels non analyses comme ambigus | Produire des warnings ou annotations lorsqu'un pointeur est passe a une fonction non analysee. | Fait |
-| 13 | Basse | Ajouter des exemples C plus varies | Tester pointeurs, structs imbriquees, retours non-`int`, macros, appels indirects et buffers dynamiques. | Fait |
-| 14 | Basse | Ajouter des tests automatises sur les rapports JSON | Verifier que l'analyse produit les `read_set` / `write_set` attendus. | Fait |
+* `generated/<fonction>_report.json` ;
+* `generated/<fonction>_annotations.required.json` ;
+* `generated/harness_<fonction>_capture.c` ;
+* `generated/harness_<fonction>_replay.c` ;
+* `generated/capture_<fonction>` ;
+* `generated/replay_<fonction>` ;
+* `testcases/<fonction>_case_001/*.bin`.
