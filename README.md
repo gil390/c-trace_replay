@@ -129,6 +129,148 @@ L'outil génère notamment :
 
 ---
 
+## Schéma du rapport d'analyse
+
+Le fichier `generated/<fonction>_report.json` est le contrat principal entre
+l'analyseur et le générateur de harness.
+
+Il décrit ce que la fonction lit, ce qu'elle modifie, ce qui doit être capturé
+avant l'appel et ce qui doit être comparé après le replay.
+
+### Champs principaux
+
+| Champ | Signification |
+| --- | --- |
+| `source` | Fichier C analysé. |
+| `header` | Header utilisé pour compiler/analyser la fonction. |
+| `function` | Nom de la fonction cible. |
+| `return_type` | Type de retour détecté. |
+| `parameters` | Liste des paramètres de la fonction avec leur nom et leur type. |
+| `globals_read` | Variables globales lues par la fonction. |
+| `globals_written` | Variables globales modifiées par la fonction. |
+| `calls` | Fonctions appelées depuis la fonction cible. |
+| `access_sets.read_set` | Données lues par la fonction. |
+| `access_sets.write_set` | Données écrites ou modifiées par la fonction. |
+| `inferred_captures.before` | Données à sauvegarder avant l'appel. |
+| `inferred_captures.after` | Données à sauvegarder ou comparer après l'appel. |
+| `warnings` | Informations ou risques non bloquants à examiner. |
+| `annotation_required` | Ambiguïtés bloquantes nécessitant une information complémentaire. |
+| `backend` | Moteur d'analyse utilisé, par exemple `clang` ou `regex-fallback`. |
+
+### Entrées `parameters`
+
+Chaque paramètre contient :
+
+```json
+{
+  "name": "input",
+  "type": "uint8_t *"
+}
+```
+
+### Entrées `calls`
+
+Chaque appel détecté contient :
+
+```json
+{
+  "name": "helper",
+  "args": ["local"],
+  "indirect": false,
+  "risk": "low",
+  "reasons": [],
+  "location": {
+    "file": "examples/sample.c",
+    "line": 26,
+    "column": 44
+  }
+}
+```
+
+`indirect` indique si l'appel est indirect ou non résolu. `location` permet de
+retrouver rapidement le code à examiner.
+
+### Entrées `read_set` et `write_set`
+
+Chaque accès mémoire contient :
+
+```json
+{
+  "symbol": "input",
+  "expr": "input[i]",
+  "range": "0..len-1",
+  "reason": "array read detected",
+  "location": {
+    "file": "examples/sample.c",
+    "line": 23,
+    "column": 35
+  }
+}
+```
+
+Les champs signifient :
+
+| Champ | Signification |
+| --- | --- |
+| `symbol` | Entité logique concernée, par exemple `input`, `ctx->scale`, `g_counter`. |
+| `expr` | Expression C exacte ou normalisée. |
+| `range` | Plage concernée, par exemple `scalar`, `0..len-1`, `0..15`. |
+| `reason` | Raison pour laquelle l'accès a été classé en lecture ou écriture. |
+| `location` | Emplacement source de l'accès. |
+
+### `warnings` vs `annotation_required`
+
+Un `warning` est informatif ou prudent. Il indique un point à examiner, mais ne
+bloque pas forcément la génération du harness.
+
+Exemple :
+
+```json
+{
+  "level": "info",
+  "message": "field access detected; recursive callee analysis recommended"
+}
+```
+
+Une entrée `annotation_required` est bloquante. Elle signifie que l'analyseur ne
+peut pas déterminer seul une information nécessaire à une capture fiable.
+
+Exemple :
+
+```json
+{
+  "symbol": "buffer",
+  "reason": "callee effects not analyzed for call to mutate_buffer",
+  "example": {
+    "size_expr": "TODO",
+    "direction": "in|out|inout"
+  }
+}
+```
+
+### Exemple de synthèse pour `compute`
+
+Pour `compute`, le rapport permet de résumer l'interface comportementale ainsi :
+
+```text
+IN:
+  input[0..len-1]
+  ctx->table[0..15]
+  ctx->scale
+  g_mode
+  g_counter
+
+OUT:
+  output[0..len-1]
+  g_counter
+  return value
+```
+
+`g_counter` apparaît à la fois en entrée et en sortie, car il est lu puis
+modifié.
+
+---
+
 ## Limites actuelles
 
 Certaines situations restent difficiles à analyser automatiquement :
