@@ -230,6 +230,45 @@ Le replay recharge ces fichiers, execute a nouveau `compute()`, puis compare :
 
 > make show-report FUNC=toto OUT=/tmp/c_trace_replay_toto
 
+## Cas a tester pour la tache 11
+
+Les fichiers `examples/rw_cases.c` et `examples/rw_cases.h` servent de matrice
+de validation pour l'analyse lecture/ecriture basee sur l'AST C.
+
+Commande type :
+
+```bash
+make show-report SRC=examples/rw_cases.c HDR=examples/rw_cases.h FUNC=rw_array_read_write OUT=/tmp/rw_cases
+```
+
+Lancer toute la batterie :
+
+```bash
+make test-rw-cases
+```
+
+Les rapports sont generes dans `generated/rw_cases/`.
+
+| Fonction | Forme C testee | Attendu |
+| --- | --- | --- |
+| `rw_array_read_write` | `output[i] = input[i]` | `input` lu, `output` ecrit |
+| `rw_array_compound` | `buffer[i] += 1` | `buffer` lu et ecrit |
+| `rw_array_increment` | `buffer[i]++` | `buffer` lu et ecrit |
+| `rw_pointer_read` | `return *src` | `src` lu par dereferencement |
+| `rw_pointer_write` | `*dst = 42` | `dst` ecrit par dereferencement |
+| `rw_pointer_inout` | `*value += 1` | `value` lu et ecrit |
+| `rw_struct_field_read` | `*dst = ctx->value` | `ctx->value` lu, `dst` ecrit |
+| `rw_struct_field_write` | `ctx->value = value` | `ctx->value` ecrit |
+| `rw_struct_field_inout` | `ctx->count += 1` | `ctx->count` lu et ecrit |
+| `rw_struct_array_read` | `output[i] = ctx->table[i % 16]` | `ctx->table` lu, `output` ecrit |
+| `rw_global_read` | `*dst = g_rw_mode` | `g_rw_mode` lu, `dst` ecrit |
+| `rw_global_write` | `g_rw_counter = value` | `g_rw_counter` ecrit |
+| `rw_global_inout` | `g_rw_counter++` | `g_rw_counter` lu et ecrit |
+| `rw_call_with_pointer` | `mutate_buffer(buffer, len)` | appel detecte, effet sur `buffer` ambigu sans analyse du callee |
+| `rw_conditional_read` | lecture dans un `if` | `input` lu, `output` ecrit |
+| `rw_dynamic_index` | `input[i + offset]` | `input` lu avec plage dynamique, `output` ecrit |
+| `rw_content_dependent_loop` | boucle `while (*src)` | `src` lu, `dst` ecrit, taille dependante du contenu |
+
 ## TODO
 
 Les trois premieres taches de generalisation sont terminees cote analyse et

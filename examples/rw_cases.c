@@ -1,0 +1,115 @@
+#include "rw_cases.h"
+
+int g_rw_counter = 0;
+int g_rw_mode = 1;
+
+static void mutate_buffer(uint8_t *buffer, size_t len)
+{
+    if (len > 0) {
+        buffer[0] = (uint8_t)(buffer[0] + 1);
+    }
+}
+
+void rw_array_read_write(uint8_t *input, uint8_t *output, size_t len)
+{
+    for (size_t i = 0; i < len; i++) {
+        output[i] = input[i];
+    }
+}
+
+void rw_array_compound(uint8_t *buffer, size_t len)
+{
+    for (size_t i = 0; i < len; i++) {
+        buffer[i] += 1;
+    }
+}
+
+void rw_array_increment(uint8_t *buffer, size_t len)
+{
+    for (size_t i = 0; i < len; i++) {
+        buffer[i]++;
+    }
+}
+
+int rw_pointer_read(const int *src)
+{
+    return *src;
+}
+
+void rw_pointer_write(int *dst)
+{
+    *dst = 42;
+}
+
+void rw_pointer_inout(int *value)
+{
+    *value += 1;
+}
+
+void rw_struct_field_read(RwContext *ctx, int *dst)
+{
+    *dst = ctx->value;
+}
+
+void rw_struct_field_write(RwContext *ctx, int value)
+{
+    ctx->value = value;
+}
+
+void rw_struct_field_inout(RwContext *ctx)
+{
+    ctx->count += 1;
+}
+
+void rw_struct_array_read(RwContext *ctx, uint8_t *output, size_t len)
+{
+    for (size_t i = 0; i < len; i++) {
+        output[i] = ctx->table[i % 16];
+    }
+}
+
+void rw_global_read(int *dst)
+{
+    *dst = g_rw_mode;
+}
+
+void rw_global_write(int value)
+{
+    g_rw_counter = value;
+}
+
+void rw_global_inout(void)
+{
+    g_rw_counter++;
+}
+
+void rw_call_with_pointer(uint8_t *buffer, size_t len)
+{
+    mutate_buffer(buffer, len);
+}
+
+void rw_conditional_read(uint8_t *input, uint8_t *output, size_t len)
+{
+    for (size_t i = 0; i < len; i++) {
+        if (input[i] != 0) {
+            output[i] = input[i];
+        }
+    }
+}
+
+void rw_dynamic_index(uint8_t *input, uint8_t *output, size_t len, size_t offset)
+{
+    for (size_t i = 0; i < len; i++) {
+        output[i] = input[i + offset];
+    }
+}
+
+void rw_content_dependent_loop(const char *src, char *dst)
+{
+    while (*src) {
+        *dst = *src;
+        src++;
+        dst++;
+    }
+    *dst = 0;
+}
