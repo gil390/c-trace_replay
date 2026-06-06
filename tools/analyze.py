@@ -40,13 +40,16 @@ def add_unique(items, item):
         items.append(item)
 
 
-def add_access(report, set_name, symbol, expr, rng, reason):
-    add_unique(report['access_sets'][set_name], {
+def add_access(report, set_name, symbol, expr, rng, reason, location=None):
+    access = {
         'symbol': symbol,
         'expr': expr,
         'range': rng,
         'reason': reason,
-    })
+    }
+    if location:
+        access['location'] = location
+    add_unique(report['access_sets'][set_name], access)
 
 
 def finalize_report(report):
@@ -115,6 +118,17 @@ def cursor_children(cursor):
 def is_in_file(cursor, path):
     loc = cursor.location
     return bool(loc.file) and Path(str(loc.file)).resolve() == path.resolve()
+
+
+def cursor_location(cursor):
+    loc = cursor.location
+    if not loc or not loc.file:
+        return None
+    return {
+        'file': str(loc.file),
+        'line': loc.line,
+        'column': loc.column,
+    }
 
 
 def is_assignment_lhs(cursor, parents):
@@ -305,6 +319,7 @@ def analyze_with_clang():
                     'indirect': cursor.referenced is None,
                     'risk': 'low' if cursor.referenced else 'unknown',
                     'reasons': [] if cursor.referenced else ['unresolved callee'],
+                    'location': cursor_location(cursor),
                 })
 
         elif kind == 'ARRAY_SUBSCRIPT_EXPR':
@@ -315,9 +330,9 @@ def analyze_with_clang():
                 expr = f'{base}[{index_text}]'
                 set_name = 'write_set' if is_assignment_lhs(cursor, parents) else 'read_set'
                 reason = 'array write detected' if set_name == 'write_set' else 'array read detected'
-                add_access(report, set_name, base, expr, range_from_index(index_text, loop_bounds), reason)
+                add_access(report, set_name, base, expr, range_from_index(index_text, loop_bounds), reason, cursor_location(cursor))
                 if is_readwrite(cursor, parents):
-                    add_access(report, 'read_set', base, expr, range_from_index(index_text, loop_bounds), 'array read detected')
+                    add_access(report, 'read_set', base, expr, range_from_index(index_text, loop_bounds), 'array read detected', cursor_location(cursor))
 
         elif kind == 'UNARY_OPERATOR':
             operand = deref_operand(cursor)
@@ -325,9 +340,9 @@ def analyze_with_clang():
                 expr = f'*{operand}'
                 set_name = 'write_set' if is_assignment_lhs(cursor, parents) else 'read_set'
                 reason = 'pointer write detected' if set_name == 'write_set' else 'pointer read detected'
-                add_access(report, set_name, operand, expr, 'scalar', reason)
+                add_access(report, set_name, operand, expr, 'scalar', reason, cursor_location(cursor))
                 if is_readwrite(cursor, parents):
-                    add_access(report, 'read_set', operand, expr, 'scalar', 'pointer read detected')
+                    add_access(report, 'read_set', operand, expr, 'scalar', 'pointer read detected', cursor_location(cursor))
                 for child in cursor.get_children():
                     visit(child)
                 return
@@ -341,7 +356,8 @@ def analyze_with_clang():
                 if ';' in expr or '{' in expr or len(expr) > 120:
                     add_unique(report['warnings'], {
                         'level': 'warning',
-                        'message': 'macro or invalid member expression extent detected; annotation may be required'
+                        'message': 'macro or invalid member expression extent detected; annotation may be required',
+                        'location': cursor_location(cursor),
                     })
                     for child in cursor.get_children():
                         visit(child)
@@ -355,9 +371,9 @@ def analyze_with_clang():
                     return
                 set_name = 'write_set' if is_assignment_lhs(cursor, parents) else 'read_set'
                 reason = 'struct field write detected' if set_name == 'write_set' else 'struct field read detected'
-                add_access(report, set_name, expr, expr, 'scalar', reason)
+                add_access(report, set_name, expr, expr, 'scalar', reason, cursor_location(cursor))
                 if is_readwrite(cursor, parents):
-                    add_access(report, 'read_set', expr, expr, 'scalar', 'struct field read detected')
+                    add_access(report, 'read_set', expr, expr, 'scalar', 'struct field read detected', cursor_location(cursor))
 
         elif kind == 'DECL_REF_EXPR' and cursor.referenced:
             ref = cursor.referenced
@@ -366,13 +382,13 @@ def analyze_with_clang():
                 if name.startswith('g_'):
                     if is_assignment_lhs(cursor, parents):
                         add_unique(report['globals_written'], name)
-                        add_access(report, 'write_set', name, name, 'scalar', 'global write')
+                        add_access(report, 'write_set', name, name, 'scalar', 'global write', cursor_location(cursor))
                         if is_readwrite(cursor, parents):
                             add_unique(report['globals_read'], name)
-                            add_access(report, 'read_set', name, name, 'scalar', 'global read')
+                            add_access(report, 'read_set', name, name, 'scalar', 'global read', cursor_location(cursor))
                     else:
                         add_unique(report['globals_read'], name)
-                        add_access(report, 'read_set', name, name, 'scalar', 'global read')
+                        add_access(report, 'read_set', name, name, 'scalar', 'global read', cursor_location(cursor))
 
         for child in cursor.get_children():
             visit(child)
@@ -399,8 +415,21 @@ def analyze_with_clang():
                         'direction': 'in|out|inout'
                     }
                 })
-    if any('->' in item['expr'] or '.' in item['expr'] for item in report['access_sets']['read_set']):
-        report['warnings'].append({'level': 'info', 'message': 'field access detected; recursive callee analysis recommended'})
+    field_reads = [
+        {
+            'symbol': item['symbol'],
+            'expr': item['expr'],
+            'location': item.get('location')
+        }
+        for item in report['access_sets']['read_set']
+        if '->' in item['expr'] or '.' in item['expr']
+    ]
+    if field_reads:
+        report['warnings'].append({
+            'level': 'info',
+            'message': 'field access detected; recursive callee analysis recommended',
+            'locations': field_reads,
+        })
     if has_content_dependent_pointer_loop(fn):
         report['warnings'].append({
             'level': 'warning',
