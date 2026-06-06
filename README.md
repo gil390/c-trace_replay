@@ -278,6 +278,12 @@ make test-rw-cases
 
 Les rapports sont generes dans `generated/rw_cases/`.
 
+Verifier automatiquement plusieurs rapports JSON :
+
+```bash
+make test-reports
+```
+
 | Fonction | Forme C testee | Attendu |
 | --- | --- | --- |
 | `rw_array_read_write` | `output[i] = input[i]` | `input` lu, `output` ecrit |
@@ -297,6 +303,10 @@ Les rapports sont generes dans `generated/rw_cases/`.
 | `rw_conditional_read` | lecture dans un `if` | `input` lu, `output` ecrit |
 | `rw_dynamic_index` | `input[i + offset]` | `input` lu avec plage dynamique, `output` ecrit |
 | `rw_content_dependent_loop` | boucle `while (*src)` | `src` lu, `dst` ecrit, taille dependante du contenu |
+| `rw_typedef_array` | buffers avec typedef | `input` lu, `output` ecrit |
+| `rw_nested_struct_field` | champ de structure imbriquee | `outer->inner.value` lu, `dst` ecrit |
+| `rw_macro_write` | ecriture via macro | ambiguite signalee si l'etendue AST est invalide |
+| `rw_function_pointer_call` | callback avec pointeur | appel indirect detecte, effet sur `buffer` ambigu |
 
 ## TODO
 
@@ -316,6 +326,6 @@ decrits par un fichier `testcases/<fonction>.case.json`.
 | 9 | Moyenne | Ajouter une dependance Python `clang` | Preparer la migration vers une analyse AST C. | Fait |
 | 10 | Moyenne | Recrire `tools/analyze.py` avec libclang | Remplacer les regex par un vrai parcours d'AST C. | Fait |
 | 11 | Moyenne | Ajouter une analyse lecture/ecriture basee sur le contexte AST | Distinguer correctement lectures, ecritures et operations `inout`. | Fait |
-| 12 | Moyenne | Signaler les appels non analyses comme ambigus | Produire des warnings ou annotations lorsqu'un pointeur est passe a une fonction non analysee. | A faire |
-| 13 | Basse | Ajouter des exemples C plus varies | Tester pointeurs, structs imbriquees, retours non-`int`, macros, appels indirects et buffers dynamiques. | A faire |
-| 14 | Basse | Ajouter des tests automatises sur les rapports JSON | Verifier que l'analyse produit les `read_set` / `write_set` attendus. | A faire |
+| 12 | Moyenne | Signaler les appels non analyses comme ambigus | Produire des warnings ou annotations lorsqu'un pointeur est passe a une fonction non analysee. | Fait |
+| 13 | Basse | Ajouter des exemples C plus varies | Tester pointeurs, structs imbriquees, retours non-`int`, macros, appels indirects et buffers dynamiques. | Fait |
+| 14 | Basse | Ajouter des tests automatises sur les rapports JSON | Verifier que l'analyse produit les `read_set` / `write_set` attendus. | Fait |

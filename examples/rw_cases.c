@@ -1,5 +1,7 @@
 #include "rw_cases.h"
 
+#define RW_SET_VALUE(ctx, value) ((ctx)->value = (value))
+
 int g_rw_counter = 0;
 int g_rw_mode = 1;
 
@@ -112,4 +114,26 @@ void rw_content_dependent_loop(const char *src, char *dst)
         dst++;
     }
     *dst = 0;
+}
+
+void rw_typedef_array(rw_byte_t *input, rw_byte_t *output, size_t len)
+{
+    for (size_t i = 0; i < len; i++) {
+        output[i] = input[i];
+    }
+}
+
+void rw_nested_struct_field(RwOuter *outer, int *dst)
+{
+    *dst = outer->inner.value;
+}
+
+void rw_macro_write(RwContext *ctx, int value)
+{
+    RW_SET_VALUE(ctx, value);
+}
+
+void rw_function_pointer_call(RwCallback callback, uint8_t *buffer, size_t len)
+{
+    callback(buffer, len);
 }

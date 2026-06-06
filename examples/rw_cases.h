@@ -10,6 +10,13 @@ typedef struct {
     uint8_t table[16];
 } RwContext;
 
+typedef struct {
+    RwContext inner;
+} RwOuter;
+
+typedef uint8_t rw_byte_t;
+typedef void (*RwCallback)(uint8_t *buffer, size_t len);
+
 extern int g_rw_counter;
 extern int g_rw_mode;
 
@@ -30,5 +37,9 @@ void rw_call_with_pointer(uint8_t *buffer, size_t len);
 void rw_conditional_read(uint8_t *input, uint8_t *output, size_t len);
 void rw_dynamic_index(uint8_t *input, uint8_t *output, size_t len, size_t offset);
 void rw_content_dependent_loop(const char *src, char *dst);
+void rw_typedef_array(rw_byte_t *input, rw_byte_t *output, size_t len);
+void rw_nested_struct_field(RwOuter *outer, int *dst);
+void rw_macro_write(RwContext *ctx, int value);
+void rw_function_pointer_call(RwCallback callback, uint8_t *buffer, size_t len);
 
 #endif

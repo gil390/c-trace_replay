@@ -206,6 +206,16 @@ def direction_for_symbol(report, symbol):
     return 'unknown'
 
 
+def pointer_param_names(report):
+    return {param['name'] for param in report['parameters'] if '*' in param['type']}
+
+
+def call_arg_root(arg):
+    arg = compact_expr(arg)
+    arg = arg.lstrip('&')
+    return arg.split('->')[0].split('.')[0].split('[')[0]
+
+
 def find_function(cursor, source_path):
     for child in cursor.get_children():
         if (child.kind.name == 'FUNCTION_DECL'
@@ -328,6 +338,14 @@ def analyze_with_clang():
                 pass
             else:
                 expr = compact_expr(token_text(cursor))
+                if ';' in expr or '{' in expr or len(expr) > 120:
+                    add_unique(report['warnings'], {
+                        'level': 'warning',
+                        'message': 'macro or invalid member expression extent detected; annotation may be required'
+                    })
+                    for child in cursor.get_children():
+                        visit(child)
+                    return
                 if any(
                     item['symbol'] == expr and item['range'] != 'scalar'
                     for item in report['access_sets']['read_set'] + report['access_sets']['write_set']
@@ -363,6 +381,24 @@ def analyze_with_clang():
 
     if any(call['indirect'] for call in report['calls']):
         report['warnings'].append({'level': 'warning', 'message': 'unresolved or indirect call detected'})
+    pointer_params = pointer_param_names(report)
+    for call in report['calls']:
+        for arg in call.get('args', []):
+            root = call_arg_root(arg)
+            if root in pointer_params:
+                add_unique(report['warnings'], {
+                    'level': 'warning',
+                    'symbol': root,
+                    'message': f'pointer argument passed to {call["name"]}; callee effects not analyzed'
+                })
+                add_unique(report['annotation_required'], {
+                    'symbol': root,
+                    'reason': f'callee effects not analyzed for call to {call["name"]}',
+                    'example': {
+                        'size_expr': 'TODO',
+                        'direction': 'in|out|inout'
+                    }
+                })
     if any('->' in item['expr'] or '.' in item['expr'] for item in report['access_sets']['read_set']):
         report['warnings'].append({'level': 'info', 'message': 'field access detected; recursive callee analysis recommended'})
     if has_content_dependent_pointer_loop(fn):

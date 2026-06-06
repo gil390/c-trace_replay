@@ -19,9 +19,10 @@ RW_FUNCS=rw_array_read_write rw_array_compound rw_array_increment \
 	rw_pointer_read rw_pointer_write rw_pointer_inout \
 	rw_struct_field_read rw_struct_field_write rw_struct_field_inout rw_struct_array_read \
 	rw_global_read rw_global_write rw_global_inout \
-	rw_call_with_pointer rw_conditional_read rw_dynamic_index rw_content_dependent_loop
+	rw_call_with_pointer rw_conditional_read rw_dynamic_index rw_content_dependent_loop \
+	rw_typedef_array rw_nested_struct_field rw_macro_write rw_function_pointer_call
 
-.PHONY: all analyze generate capture replay test clean show-report show-warnings sample-run test-rw-cases
+.PHONY: all analyze generate capture replay test clean show-report show-warnings sample-run test-rw-cases test-reports
 
 all: test
 
@@ -64,6 +65,9 @@ test-rw-cases:
 		annotations=$$($(PYTHON) -c "import json; r=json.load(open('$(RW_OUT)/' + '$$func' + '_report.json')); print(len(r.get('annotation_required', [])))"); \
 		printf "%-32s backend=%s warnings=%s annotations=%s\n" "$$func" "$$backend" "$$warnings" "$$annotations"; \
 	done
+
+test-reports:
+	$(PYTHON) tools/test_reports.py
 
 clean:
 	rm -rf generated/* testcases/*_case_001 testcases/case_001
