@@ -237,19 +237,19 @@ nommage des rapports. Le workflow capture/replay complet reste encore specialise
 pour `compute()` tant que la generation du harness n'utilise pas vraiment
 `report["function"]` et `report["parameters"]`.
 
-| Priorite | Tache | Objectif | Etat |
-| --- | --- | --- | --- |
-| Haute | Parametrer la fonction cible dans le `Makefile` | Permettre de choisir `FUNC`, `SRC`, `HDR` et `OUT` depuis la ligne de commande. | Fait |
-| Haute | Generer les rapports avec le nom de la fonction | Produire par exemple `generated/<fonction>_report.json` au lieu de toujours ecrire `compute_report.json`. | Fait |
-| Haute | Supprimer l'hypothese de retour `int` dans `tools/analyze.py` | Analyser aussi des fonctions `void`, `float`, `uint32_t`, pointeurs, structs, etc. | Fait |
-| Haute | Utiliser `report["function"]` dans `tools/generate_harness.py` | Eviter que le harness genere appelle toujours `compute()`. | A faire |
-| Haute | Generer les arguments du harness depuis `report["parameters"]` | Construire l'appel de la fonction cible a partir de sa signature reelle. | A faire |
-| Haute | Decrire les donnees d'entree dans un format externe | Remplacer les valeurs codees en dur (`Context`, `input`, `len`) par un cas de test ou des annotations. | A faire |
-| Moyenne | Rendre les noms des fichiers captures generiques | Eviter les noms specialises comme `ctx_before.bin` ou `output_expected.bin`. | A faire |
-| Moyenne | Generaliser la comparaison de replay | Comparer automatiquement les sorties et globaux ecrits d'apres le `write_set`. | A faire |
-| Moyenne | Ajouter une dependance Python `clang` | Preparer la migration vers une analyse AST C. | Fait |
-| Moyenne | Recrire `tools/analyze.py` avec libclang | Remplacer les regex par un vrai parcours d'AST C. | En cours |
-| Moyenne | Ajouter une analyse lecture/ecriture basee sur le contexte AST | Distinguer correctement lectures, ecritures et operations `inout`. | En cours |
-| Moyenne | Signaler les appels non analyses comme ambigus | Produire des warnings ou annotations lorsqu'un pointeur est passe a une fonction non analysee. | A faire |
-| Basse | Ajouter des exemples C plus varies | Tester pointeurs, structs imbriquees, retours non-`int`, macros, appels indirects et buffers dynamiques. | A faire |
-| Basse | Ajouter des tests automatises sur les rapports JSON | Verifier que l'analyse produit les `read_set` / `write_set` attendus. | A faire |
+| Numero | Priorite | Tache | Objectif | Etat |
+| --- | --- | --- | --- | --- |
+| 1 | Haute | Parametrer la fonction cible dans le `Makefile` | Permettre de choisir `FUNC`, `SRC`, `HDR` et `OUT` depuis la ligne de commande. | Fait |
+| 2 | Haute | Generer les rapports avec le nom de la fonction | Produire par exemple `generated/<fonction>_report.json` au lieu de toujours ecrire `compute_report.json`. | Fait |
+| 3 | Haute | Supprimer l'hypothese de retour `int` dans `tools/analyze.py` | Analyser aussi des fonctions `void`, `float`, `uint32_t`, pointeurs, structs, etc. | Fait |
+| 4 | Haute | Utiliser `report["function"]` dans `tools/generate_harness.py` | Eviter que le harness genere appelle toujours `compute()`. | A faire |
+| 5 | Haute | Generer les arguments du harness depuis `report["parameters"]` | Construire l'appel de la fonction cible a partir de sa signature reelle. | A faire |
+| 6 | Haute | Decrire les donnees d'entree dans un format externe | Remplacer les valeurs codees en dur (`Context`, `input`, `len`) par un cas de test ou des annotations. | A faire |
+| 7 | Moyenne | Rendre les noms des fichiers captures generiques | Eviter les noms specialises comme `ctx_before.bin` ou `output_expected.bin`. | A faire |
+| 8 | Moyenne | Generaliser la comparaison de replay | Comparer automatiquement les sorties et globaux ecrits d'apres le `write_set`. | A faire |
+| 9 | Moyenne | Ajouter une dependance Python `clang` | Preparer la migration vers une analyse AST C. | Fait |
+| 10 | Moyenne | Recrire `tools/analyze.py` avec libclang | Remplacer les regex par un vrai parcours d'AST C. | En cours |
+| 11 | Moyenne | Ajouter une analyse lecture/ecriture basee sur le contexte AST | Distinguer correctement lectures, ecritures et operations `inout`. | En cours |
+| 12 | Moyenne | Signaler les appels non analyses comme ambigus | Produire des warnings ou annotations lorsqu'un pointeur est passe a une fonction non analysee. | A faire |
+| 13 | Basse | Ajouter des exemples C plus varies | Tester pointeurs, structs imbriquees, retours non-`int`, macros, appels indirects et buffers dynamiques. | A faire |
+| 14 | Basse | Ajouter des tests automatises sur les rapports JSON | Verifier que l'analyse produit les `read_set` / `write_set` attendus. | A faire |
