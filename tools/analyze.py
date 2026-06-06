@@ -156,6 +156,16 @@ def range_from_index(index_text, loop_bounds):
     return index_text
 
 
+def deref_operand(cursor):
+    text = token_text(cursor)
+    if not text.startswith('*'):
+        return None
+    children = cursor_children(cursor)
+    if not children:
+        return None
+    return compact_expr(token_text(children[0]))
+
+
 def build_parent_map(cursor, parents):
     for child in cursor.get_children():
         parents[child.hash] = cursor
@@ -172,6 +182,27 @@ def detect_loop_bounds(cursor):
                 bounds[match.group(1)] = match.group(2)
         bounds.update(detect_loop_bounds(child))
     return bounds
+
+
+def has_content_dependent_pointer_loop(cursor):
+    for child in cursor.get_children():
+        if child.kind.name == 'WHILE_STMT' and '*' in token_text(child):
+            return True
+        if has_content_dependent_pointer_loop(child):
+            return True
+    return False
+
+
+def direction_for_symbol(report, symbol):
+    is_read = any(item['symbol'] == symbol for item in report['access_sets']['read_set'])
+    is_write = any(item['symbol'] == symbol for item in report['access_sets']['write_set'])
+    if is_read and is_write:
+        return 'inout'
+    if is_write:
+        return 'out'
+    if is_read:
+        return 'in'
+    return 'unknown'
 
 
 def find_function(cursor, source_path):
@@ -277,6 +308,19 @@ def analyze_with_clang():
                 if is_readwrite(cursor, parents):
                     add_access(report, 'read_set', base, expr, range_from_index(index_text, loop_bounds), 'array read detected')
 
+        elif kind == 'UNARY_OPERATOR':
+            operand = deref_operand(cursor)
+            if operand:
+                expr = f'*{operand}'
+                set_name = 'write_set' if is_assignment_lhs(cursor, parents) else 'read_set'
+                reason = 'pointer write detected' if set_name == 'write_set' else 'pointer read detected'
+                add_access(report, set_name, operand, expr, 'scalar', reason)
+                if is_readwrite(cursor, parents):
+                    add_access(report, 'read_set', operand, expr, 'scalar', 'pointer read detected')
+                for child in cursor.get_children():
+                    visit(child)
+                return
+
         elif kind == 'MEMBER_REF_EXPR':
             parent = parents.get(cursor.hash)
             if parent and parent.kind.name == 'ARRAY_SUBSCRIPT_EXPR':
@@ -320,6 +364,25 @@ def analyze_with_clang():
         report['warnings'].append({'level': 'warning', 'message': 'unresolved or indirect call detected'})
     if any('->' in item['expr'] or '.' in item['expr'] for item in report['access_sets']['read_set']):
         report['warnings'].append({'level': 'info', 'message': 'field access detected; recursive callee analysis recommended'})
+    if has_content_dependent_pointer_loop(fn):
+        report['warnings'].append({
+            'level': 'warning',
+            'message': 'content-dependent pointer loop detected; annotation may be required'
+        })
+        accessed_symbols = {
+            item['symbol']
+            for item in report['access_sets']['read_set'] + report['access_sets']['write_set']
+        }
+        for param in report['parameters']:
+            if '*' in param['type'] and param['name'] in accessed_symbols:
+                add_unique(report['annotation_required'], {
+                    'symbol': param['name'],
+                    'reason': 'content-dependent pointer extent not inferred',
+                    'example': {
+                        'size_expr': 'TODO',
+                        'direction': direction_for_symbol(report, param['name'])
+                    }
+                })
 
     return finalize_report(report)
 

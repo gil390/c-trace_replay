@@ -287,8 +287,8 @@ pour `compute()` tant que la generation du harness n'utilise pas vraiment
 | 7 | Moyenne | Rendre les noms des fichiers captures generiques | Eviter les noms specialises comme `ctx_before.bin` ou `output_expected.bin`. | A faire |
 | 8 | Moyenne | Generaliser la comparaison de replay | Comparer automatiquement les sorties et globaux ecrits d'apres le `write_set`. | A faire |
 | 9 | Moyenne | Ajouter une dependance Python `clang` | Preparer la migration vers une analyse AST C. | Fait |
-| 10 | Moyenne | Recrire `tools/analyze.py` avec libclang | Remplacer les regex par un vrai parcours d'AST C. | En cours |
-| 11 | Moyenne | Ajouter une analyse lecture/ecriture basee sur le contexte AST | Distinguer correctement lectures, ecritures et operations `inout`. | En cours |
+| 10 | Moyenne | Recrire `tools/analyze.py` avec libclang | Remplacer les regex par un vrai parcours d'AST C. | Fait |
+| 11 | Moyenne | Ajouter une analyse lecture/ecriture basee sur le contexte AST | Distinguer correctement lectures, ecritures et operations `inout`. | Fait |
 | 12 | Moyenne | Signaler les appels non analyses comme ambigus | Produire des warnings ou annotations lorsqu'un pointeur est passe a une fonction non analysee. | A faire |
 | 13 | Basse | Ajouter des exemples C plus varies | Tester pointeurs, structs imbriquees, retours non-`int`, macros, appels indirects et buffers dynamiques. | A faire |
 | 14 | Basse | Ajouter des tests automatises sur les rapports JSON | Verifier que l'analyse produit les `read_set` / `write_set` attendus. | A faire |
