@@ -12,6 +12,7 @@ typedef struct {
 extern uint32_t g_counter;
 extern int g_mode;
 
+float toto(size_t j);
 int compute(Context *ctx, uint8_t *input, uint8_t *output, size_t len);
 
 #endif

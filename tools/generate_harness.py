@@ -1,140 +1,247 @@
 #!/usr/bin/env python3
-import json, sys
+import json
+import re
+import sys
 from pathlib import Path
 
 if len(sys.argv) != 3:
     print('usage: generate_harness.py <report.json> <outdir>', file=sys.stderr)
     sys.exit(2)
-report = json.loads(Path(sys.argv[1]).read_text())
-outdir = Path(sys.argv[2]); outdir.mkdir(parents=True, exist_ok=True)
+
+report_path = Path(sys.argv[1])
+report = json.loads(report_path.read_text())
+outdir = Path(sys.argv[2])
+outdir.mkdir(parents=True, exist_ok=True)
+
+func = report['function']
+case_path = Path('testcases') / f'{func}.case.json'
+
 if report.get('annotation_required'):
     print('GENERATION STOPPED: unresolved annotations required')
-    for a in report['annotation_required']:
-        print(f" - {a['symbol']}: {a['reason']}")
+    for annotation in report['annotation_required']:
+        print(f" - {annotation['symbol']}: {annotation['reason']}")
     sys.exit(1)
 
-common = r'''
+if not case_path.exists():
+    print(f'GENERATION STOPPED: missing case description {case_path}', file=sys.stderr)
+    sys.exit(1)
+
+case = json.loads(case_path.read_text())
+bindings = case.get('bindings', {})
+
+
+def c_string(text):
+    return text.replace('\\', '\\\\').replace('"', '\\"')
+
+
+def safe_name(text):
+    return re.sub(r'[^A-Za-z0-9_]', '_', text).strip('_') or 'value'
+
+
+def binding_key(symbol):
+    if symbol in bindings:
+        return symbol
+    root = symbol.split('->')[0].split('.')[0]
+    if root in bindings:
+        return root
+    return None
+
+
+def binding_for(symbol):
+    key = binding_key(symbol)
+    return bindings.get(key) if key else None
+
+
+def binding_id(symbol):
+    key = binding_key(symbol)
+    return safe_name(key or symbol)
+
+
+def unique_symbols(accesses):
+    seen = set()
+    result = []
+    for access in accesses:
+        symbol = access['symbol']
+        key = binding_key(symbol)
+        dedupe_key = key or symbol
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        result.append(symbol)
+    return result
+
+
+def declaration(var, zero=False):
+    init = '{0}' if zero else var.get('init')
+    suffix = f"[{var['array']}]" if 'array' in var else ''
+    if init is None:
+        return f"    {var['type']} {var['name']}{suffix};"
+    return f"    {var['type']} {var['name']}{suffix} = {init};"
+
+
+def require_binding(symbol):
+    binding = binding_for(symbol)
+    if not binding:
+        raise SystemExit(f'GENERATION STOPPED: no binding for symbol {symbol}')
+    return binding
+
+
+def save_line(case_dir, symbol, phase):
+    binding = require_binding(symbol)
+    ident = binding_id(symbol)
+    return f'    save_bin("{case_dir}/{ident}_{phase}.bin", {binding["expr"]}, {binding["size"]});'
+
+
+def load_line(case_dir, symbol, phase):
+    binding = require_binding(symbol)
+    ident = binding_id(symbol)
+    return f'    if (load_bin("{case_dir}/{ident}_{phase}.bin", {binding["expr"]}, {binding["size"]}) != 0) {{ printf("REPLAY FAIL: cannot load {ident}_{phase}\\n"); return 1; }}'
+
+
+def expected_decl(symbol):
+    binding = require_binding(symbol)
+    ident = binding_id(symbol)
+    return f'    uint8_t expected_{ident}[{binding["size"]}];'
+
+
+def expected_load_line(case_dir, symbol):
+    binding = require_binding(symbol)
+    ident = binding_id(symbol)
+    return f'    if (load_bin("{case_dir}/{ident}_expected.bin", expected_{ident}, {binding["size"]}) != 0) {{ printf("REPLAY FAIL: cannot load {ident}_expected\\n"); return 1; }}'
+
+
+def compare_line(symbol):
+    binding = require_binding(symbol)
+    ident = binding_id(symbol)
+    return f'''
+    if (memcmp({binding["expr"]}, expected_{ident}, {binding["size"]}) != 0) {{
+        printf("REPLAY FAIL: {ident} mismatch\\n");
+        ok = 0;
+    }}'''
+
+
+header_path = Path(report.get('header', 'examples/sample.h'))
+include_path = Path('../') / header_path
+case_dir = case.get('case_dir', f'testcases/{func}_case_001')
+return_type = report.get('return_type') or 'int'
+is_void = return_type == 'void'
+call_args = ', '.join(case.get('arguments') or [p['name'] for p in report.get('parameters', [])])
+before_symbols = unique_symbols(report.get('inferred_captures', {}).get('before', []))
+for extra in case.get('extra_before', []):
+    if extra not in before_symbols:
+        before_symbols.append(extra)
+after_symbols = unique_symbols(report.get('access_sets', {}).get('write_set', []))
+
+common = f'''
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../examples/sample.h"
+#include "{c_string(str(include_path))}"
 
 static int save_bin(const char *path, const void *data, size_t size)
-{
+{{
     FILE *f = fopen(path, "wb");
     if (!f) return -1;
-    if (fwrite(data, 1, size, f) != size) { fclose(f); return -1; }
+    if (fwrite(data, 1, size, f) != size) {{ fclose(f); return -1; }}
     fclose(f);
     return 0;
-}
+}}
 
 static int load_bin(const char *path, void *data, size_t size)
-{
+{{
     FILE *f = fopen(path, "rb");
     if (!f) return -1;
-    if (fread(data, 1, size, f) != size) { fclose(f); return -1; }
+    if (fread(data, 1, size, f) != size) {{ fclose(f); return -1; }}
     fclose(f);
     return 0;
-}
+}}
 
 static void dump_u8(const char *label, const uint8_t *p, size_t n)
-{
+{{
     printf("%s:", label);
     for (size_t i=0; i<n; i++) printf(" %u", p[i]);
-    printf("\n");
-}
+    printf("\\n");
+}}
 '''
 
-capture = common + r'''
+capture_decls = '\n'.join(declaration(var) for var in case.get('variables', []))
+replay_decls = '\n'.join(declaration(var) for var in case.get('variables', []))
+before_saves = '\n'.join(save_line(case_dir, symbol, 'before') for symbol in before_symbols)
+before_loads = '\n'.join(load_line(case_dir, symbol, 'before') for symbol in before_symbols)
+after_saves = '\n'.join(save_line(case_dir, symbol, 'expected') for symbol in after_symbols)
+expected_decls = '\n'.join(expected_decl(symbol) for symbol in after_symbols)
+expected_loads = '\n'.join(expected_load_line(case_dir, symbol) for symbol in after_symbols)
+comparisons = '\n'.join(compare_line(symbol) for symbol in after_symbols)
+dump_lines = []
+for symbol in after_symbols:
+    binding = require_binding(symbol)
+    if binding.get('dump_u8'):
+        dump_lines.append(f'    dump_u8("expected {binding_id(symbol)}", (const uint8_t *){binding["expr"]}, {binding["size"]});')
+dumps = '\n'.join(dump_lines)
+
+capture_call = (
+    f'    {func}({call_args});'
+    if is_void else
+    f'    {return_type} ret = {func}({call_args});'
+)
+replay_call = (
+    f'    {func}({call_args});'
+    if is_void else
+    f'    {return_type} ret = {func}({call_args});'
+)
+return_save = '' if is_void else f'    save_bin("{case_dir}/return_expected.bin", &ret, sizeof(ret));'
+return_decl = '' if is_void else f'    {return_type} expected_ret;'
+return_load = '' if is_void else f'    if (load_bin("{case_dir}/return_expected.bin", &expected_ret, sizeof(expected_ret)) != 0) {{ printf("REPLAY FAIL: cannot load return_expected\\n"); return 1; }}'
+return_compare = '' if is_void else '''
+    if (ret != expected_ret) {
+        printf("REPLAY FAIL: return mismatch\\n");
+        ok = 0;
+    }'''
+
+capture = common + f'''
 int main(void)
-{
-    system("mkdir -p testcases/case_001");
+{{
+    system("mkdir -p {case_dir}");
 
-    Context ctx = {
-        .table = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16},
-        .scale = 2
-    };
-    size_t len = 8;
-    uint8_t input[8] = {10,20,30,40,50,60,70,80};
-    uint8_t output[8] = {0};
+{capture_decls}
 
-    save_bin("testcases/case_001/ctx_before.bin", &ctx, sizeof(ctx));
-    save_bin("testcases/case_001/input_before.bin", input, len);
-    save_bin("testcases/case_001/g_mode_before.bin", &g_mode, sizeof(g_mode));
-    save_bin("testcases/case_001/g_counter_before.bin", &g_counter, sizeof(g_counter));
+{before_saves}
 
-    int ret = compute(&ctx, input, output, len);
+{capture_call}
 
-    save_bin("testcases/case_001/output_expected.bin", output, len);
-    save_bin("testcases/case_001/g_counter_after.bin", &g_counter, sizeof(g_counter));
-    save_bin("testcases/case_001/return_expected.bin", &ret, sizeof(ret));
-    save_bin("testcases/case_001/len.bin", &len, sizeof(len));
+{after_saves}
+{return_save}
 
-    printf("CAPTURE OK: testcase written in testcases/case_001\n");
-    dump_u8("expected output", output, len);
+    printf("CAPTURE OK: testcase written in {case_dir}\\n");
+{dumps}
     return 0;
-}
+}}
 '''
 
-replay = common + r'''
+replay = common + f'''
 int main(void)
-{
-    Context ctx;
-    size_t len = 0;
-    uint8_t input[256] = {0};
-    uint8_t output[256] = {0};
-    uint8_t expected[256] = {0};
-    uint32_t expected_counter = 0;
-    int expected_ret = 0;
+{{
+{replay_decls}
+{return_decl}
 
-    if (load_bin("testcases/case_001/len.bin", &len, sizeof(len)) != 0 || len > sizeof(input)) {
-        printf("REPLAY FAIL: cannot load len\n"); return 1;
-    }
-    if (load_bin("testcases/case_001/ctx_before.bin", &ctx, sizeof(ctx)) != 0) {
-        printf("REPLAY FAIL: cannot load ctx\n"); return 1;
-    }
-    if (load_bin("testcases/case_001/input_before.bin", input, len) != 0) {
-        printf("REPLAY FAIL: cannot load input\n"); return 1;
-    }
-    if (load_bin("testcases/case_001/g_mode_before.bin", &g_mode, sizeof(g_mode)) != 0) {
-        printf("REPLAY FAIL: cannot load g_mode\n"); return 1;
-    }
-    if (load_bin("testcases/case_001/g_counter_before.bin", &g_counter, sizeof(g_counter)) != 0) {
-        printf("REPLAY FAIL: cannot load g_counter\n"); return 1;
-    }
-    if (load_bin("testcases/case_001/output_expected.bin", expected, len) != 0) {
-        printf("REPLAY FAIL: cannot load expected output\n"); return 1;
-    }
-    if (load_bin("testcases/case_001/g_counter_after.bin", &expected_counter, sizeof(expected_counter)) != 0) {
-        printf("REPLAY FAIL: cannot load expected counter\n"); return 1;
-    }
-    if (load_bin("testcases/case_001/return_expected.bin", &expected_ret, sizeof(expected_ret)) != 0) {
-        printf("REPLAY FAIL: cannot load expected return\n"); return 1;
-    }
+{before_loads}
 
-    int ret = compute(&ctx, input, output, len);
+{expected_decls}
+{expected_loads}
+{return_load}
+
+{replay_call}
 
     int ok = 1;
-    if (ret != expected_ret) {
-        printf("REPLAY FAIL: return=%d expected=%d\n", ret, expected_ret);
-        ok = 0;
-    }
-    if (g_counter != expected_counter) {
-        printf("REPLAY FAIL: g_counter=%u expected=%u\n", g_counter, expected_counter);
-        ok = 0;
-    }
-    if (memcmp(output, expected, len) != 0) {
-        printf("REPLAY FAIL: output mismatch\n");
-        dump_u8("expected", expected, len);
-        dump_u8("got     ", output, len);
-        ok = 0;
-    }
+{return_compare}
+{comparisons}
 
-    if (ok) printf("REPLAY PASS\n");
+    if (ok) printf("REPLAY PASS\\n");
     return ok ? 0 : 1;
-}
+}}
 '''
-(outdir/'harness_compute_capture.c').write_text(capture)
-(outdir/'harness_compute_replay.c').write_text(replay)
+
+(outdir / f'harness_{func}_capture.c').write_text(capture)
+(outdir / f'harness_{func}_replay.c').write_text(replay)
 print('GENERATE OK')

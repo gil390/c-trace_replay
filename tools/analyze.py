@@ -21,6 +21,7 @@ hdr = hdr_path.read_text()
 def make_report():
     return {
         'source': str(src_path),
+        'header': str(hdr_path),
         'function': func_name,
         'return_type': None,
         'parameters': [],

@@ -1,0 +1,57 @@
+{
+  "case_name": "case_001",
+  "case_dir": "testcases/compute_case_001",
+  "variables": [
+    {
+      "name": "ctx",
+      "type": "Context",
+      "init": "{ .table = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}, .scale = 2 }"
+    },
+    {
+      "name": "len",
+      "type": "size_t",
+      "init": "8"
+    },
+    {
+      "name": "input",
+      "type": "uint8_t",
+      "array": "8",
+      "init": "{10,20,30,40,50,60,70,80}"
+    },
+    {
+      "name": "output",
+      "type": "uint8_t",
+      "array": "8",
+      "init": "{0}"
+    }
+  ],
+  "arguments": ["&ctx", "input", "output", "len"],
+  "extra_before": ["len"],
+  "bindings": {
+    "ctx": {
+      "expr": "&ctx",
+      "size": "sizeof(ctx)"
+    },
+    "input": {
+      "expr": "input",
+      "size": "len"
+    },
+    "output": {
+      "expr": "output",
+      "size": "len",
+      "dump_u8": true
+    },
+    "len": {
+      "expr": "&len",
+      "size": "sizeof(len)"
+    },
+    "g_mode": {
+      "expr": "&g_mode",
+      "size": "sizeof(g_mode)"
+    },
+    "g_counter": {
+      "expr": "&g_counter",
+      "size": "sizeof(g_counter)"
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "case_name": "case_001",
+  "case_dir": "testcases/toto_case_001",
+  "variables": [
+    {
+      "name": "j",
+      "type": "size_t",
+      "init": "5"
+    }
+  ],
+  "bindings": {}
+}

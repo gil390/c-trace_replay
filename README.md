@@ -53,7 +53,7 @@ make test
 Resultat attendu :
 
 ```text
-CAPTURE OK: testcase written in testcases/case_001
+CAPTURE OK: testcase written in testcases/compute_case_001
 REPLAY PASS
 ```
 
@@ -68,13 +68,14 @@ make clean
 - `examples/sample.c` : implementation de la fonction `compute()`.
 - `examples/sample.h` : declarations, types et variables globales.
 - `examples/sample_main.c` : programme minimal d'execution directe.
-- `tools/analyze.py` : analyseur actuel, base sur des heuristiques simples.
+- `tools/analyze.py` : analyseur AST C base sur Clang/libclang, avec fallback regex.
 - `tools/generate_harness.py` : generation des programmes de capture/replay.
 - `generated/<fonction>_report.json` : rapport d'analyse complet.
 - `generated/<fonction>_annotations.required.json` : warnings et annotations a fournir si besoin.
-- `generated/harness_compute_capture.c` : harness de capture genere.
-- `generated/harness_compute_replay.c` : harness de replay genere.
-- `testcases/case_001/` : donnees binaires capturees pour le replay.
+- `generated/harness_<fonction>_capture.c` : harness de capture genere.
+- `generated/harness_<fonction>_replay.c` : harness de replay genere.
+- `testcases/<fonction>.case.json` : description externe du cas a capturer/rejouer.
+- `testcases/<fonction>_case_001/` : donnees binaires capturees pour le replay.
 
 ## Role de `<fonction>_annotations.required.json`
 
@@ -206,9 +207,33 @@ Les cas incertains doivent continuer a produire des warnings ou des entrees dans
 `annotation_required`, par exemple lorsqu'un pointeur est transmis a une fonction
 non analysee ou lorsqu'une taille de buffer ne peut pas etre deduite.
 
+## Description externe des cas
+
+Le generateur de harness lit un fichier `testcases/<fonction>.case.json`.
+Ce fichier decrit les variables du cas, les arguments a passer a la fonction et
+les bindings entre les symboles detectes par l'analyseur et les expressions C a
+sauvegarder ou comparer.
+
+Exemple minimal pour `toto` :
+
+```json
+{
+  "case_dir": "testcases/toto_case_001",
+  "variables": [
+    {"name": "j", "type": "size_t", "init": "5"}
+  ],
+  "bindings": {}
+}
+```
+
+Pour `compute`, `testcases/compute.case.json` decrit notamment `ctx`, `input`,
+`output`, `len`, `g_mode` et `g_counter`. Le generateur utilise ensuite le
+`read_set` pour sauvegarder l'etat avant appel et le `write_set` pour comparer
+l'etat apres replay.
+
 ## Sorties generees
 
-Apres `make test`, le dossier `testcases/case_001/` contient les donnees
+Apres `make test`, le dossier `testcases/compute_case_001/` contient les donnees
 necessaires au replay :
 
 - `ctx_before.bin`
@@ -229,6 +254,10 @@ Le replay recharge ces fichiers, execute a nouveau `compute()`, puis compare :
 ## Exemple pour analyser une fonction Toto
 
 > make show-report FUNC=toto OUT=/tmp/c_trace_replay_toto
+
+## Exemple pour capturer/rejouer Toto
+
+> make test FUNC=toto
 
 ## Cas a tester pour la tache 11
 
@@ -271,21 +300,19 @@ Les rapports sont generes dans `generated/rw_cases/`.
 
 ## TODO
 
-Les trois premieres taches de generalisation sont terminees cote analyse et
-nommage des rapports. Le workflow capture/replay complet reste encore specialise
-pour `compute()` tant que la generation du harness n'utilise pas vraiment
-`report["function"]` et `report["parameters"]`.
+Les taches de generalisation du pipeline de base sont terminees pour les cas
+decrits par un fichier `testcases/<fonction>.case.json`.
 
 | Numero | Priorite | Tache | Objectif | Etat |
 | --- | --- | --- | --- | --- |
 | 1 | Haute | Parametrer la fonction cible dans le `Makefile` | Permettre de choisir `FUNC`, `SRC`, `HDR` et `OUT` depuis la ligne de commande. | Fait |
 | 2 | Haute | Generer les rapports avec le nom de la fonction | Produire par exemple `generated/<fonction>_report.json` au lieu de toujours ecrire `compute_report.json`. | Fait |
 | 3 | Haute | Supprimer l'hypothese de retour `int` dans `tools/analyze.py` | Analyser aussi des fonctions `void`, `float`, `uint32_t`, pointeurs, structs, etc. | Fait |
-| 4 | Haute | Utiliser `report["function"]` dans `tools/generate_harness.py` | Eviter que le harness genere appelle toujours `compute()`. | A faire |
-| 5 | Haute | Generer les arguments du harness depuis `report["parameters"]` | Construire l'appel de la fonction cible a partir de sa signature reelle. | A faire |
-| 6 | Haute | Decrire les donnees d'entree dans un format externe | Remplacer les valeurs codees en dur (`Context`, `input`, `len`) par un cas de test ou des annotations. | A faire |
-| 7 | Moyenne | Rendre les noms des fichiers captures generiques | Eviter les noms specialises comme `ctx_before.bin` ou `output_expected.bin`. | A faire |
-| 8 | Moyenne | Generaliser la comparaison de replay | Comparer automatiquement les sorties et globaux ecrits d'apres le `write_set`. | A faire |
+| 4 | Haute | Utiliser `report["function"]` dans `tools/generate_harness.py` | Eviter que le harness genere appelle toujours `compute()`. | Fait |
+| 5 | Haute | Generer les arguments du harness depuis `report["parameters"]` | Construire l'appel de la fonction cible a partir de sa signature reelle. | Fait |
+| 6 | Haute | Decrire les donnees d'entree dans un format externe | Remplacer les valeurs codees en dur (`Context`, `input`, `len`) par un cas de test ou des annotations. | Fait |
+| 7 | Moyenne | Rendre les noms des fichiers captures generiques | Eviter les noms specialises comme `ctx_before.bin` ou `output_expected.bin`. | Fait |
+| 8 | Moyenne | Generaliser la comparaison de replay | Comparer automatiquement les sorties et globaux ecrits d'apres le `write_set`. | Fait |
 | 9 | Moyenne | Ajouter une dependance Python `clang` | Preparer la migration vers une analyse AST C. | Fait |
 | 10 | Moyenne | Recrire `tools/analyze.py` avec libclang | Remplacer les regex par un vrai parcours d'AST C. | Fait |
 | 11 | Moyenne | Ajouter une analyse lecture/ecriture basee sur le contexte AST | Distinguer correctement lectures, ecritures et operations `inout`. | Fait |

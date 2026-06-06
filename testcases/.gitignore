@@ -1,0 +1,4 @@
+# Keep generated binary captures out of git, but keep case descriptions.
+*_case_*/
+case_*/
+*.bin
