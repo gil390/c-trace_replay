@@ -242,6 +242,34 @@ Les champs signifient :
 | `reason` | Raison pour laquelle l'accès a été classé en lecture ou écriture. |
 | `location` | Emplacement source de l'accès. |
 
+### Frontière observable
+
+Le harness capture les frontières observables de la fonction, pas ses
+temporaires internes.
+
+Sont considérés comme observables :
+
+* les paramètres et la mémoire pointée par les paramètres ;
+* les variables globales lues ou écrites ;
+* les champs et tableaux accessibles depuis une racine observable, par exemple
+  `ctx->value` ou `output[i]` ;
+* la valeur de retour.
+
+Les variables locales automatiques sont listées dans `locals`, mais elles sont
+exclues de `read_set`, `write_set`, `inferred_captures` et
+`annotation_required`. Par exemple, pour `struct vecteur v; v.x = ...;`, `v`
+reste un temporaire interne.
+
+Si l'adresse d'une variable locale automatique s'échappe, par exemple via
+`helper(&v)`, `g_ptr = &v` ou `return &v`, le rapport ajoute un warning. Cela ne
+transforme pas la variable locale en état capturable.
+
+Une variable locale `static` est différente : elle persiste entre les appels,
+mais elle n'est pas accessible directement depuis un harness externe classique.
+Elle est donc listée comme `storage: "static"` et `observable:
+"persistent_internal"`, puis signalée dans `annotation_required` pour indiquer
+qu'une instrumentation ou une séquence d'appels est nécessaire.
+
 ### `warnings` vs `annotation_required`
 
 Un `warning` est informatif ou prudent. Il indique un point à examiner, mais ne
@@ -348,9 +376,10 @@ Le replay compare actuellement :
 * les zones mémoire associées au `write_set` ;
 * les variables globales modifiées.
 
-Les cas réellement ambigus restent volontairement bloquants. Par exemple, un
-pointeur transmis à une fonction non analysée ou une boucle dépendante du contenu
-mémoire peut produire une entrée dans `annotation_required`.
+Les cas réellement ambigus restent explicitement signalés. Par exemple, un
+pointeur transmis à une fonction non analysée, une boucle dépendante du contenu
+mémoire ou une variable locale `static` peut produire une entrée dans
+`annotation_required`.
 
 ## Commandes pratiques
 

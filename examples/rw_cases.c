@@ -4,12 +4,18 @@
 
 int g_rw_counter = 0;
 int g_rw_mode = 1;
+RwVector *g_rw_escaped_vector = 0;
 
 static void mutate_buffer(uint8_t *buffer, size_t len)
 {
     if (len > 0) {
         buffer[0] = (uint8_t)(buffer[0] + 1);
     }
+}
+
+static int vector_sum(const RwVector *v)
+{
+    return (int)(v->x + v->y + v->z);
 }
 
 void rw_array_read_write(uint8_t *input, uint8_t *output, size_t len)
@@ -136,4 +142,44 @@ void rw_macro_write(RwContext *ctx, int value)
 void rw_function_pointer_call(RwCallback callback, uint8_t *buffer, size_t len)
 {
     callback(buffer, len);
+}
+
+void rw_local_struct_temp(int *dst)
+{
+    RwVector v = {1.0, 2.0, 3.0};
+    v.x += 4.0;
+    *dst = (int)(v.x + v.y + v.z);
+}
+
+void rw_local_struct_output(double *out)
+{
+    RwVector v = {1.0, 2.0, 3.0};
+    out[0] = v.x;
+    out[1] = v.y;
+    out[2] = v.z;
+}
+
+void rw_local_address_escape_call(int *dst)
+{
+    RwVector v = {1.0, 2.0, 3.0};
+    *dst = vector_sum(&v);
+}
+
+void rw_local_address_escape_global(void)
+{
+    RwVector v = {1.0, 2.0, 3.0};
+    g_rw_escaped_vector = &v;
+}
+
+RwVector *rw_local_address_escape_return(void)
+{
+    RwVector v = {1.0, 2.0, 3.0};
+    return (RwVector *)(uintptr_t)&v;
+}
+
+int rw_local_static_state(int input)
+{
+    static int acc = 0;
+    acc += input;
+    return acc;
 }

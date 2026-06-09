@@ -75,6 +75,28 @@ def add_local(report, name, typ, storage, location=None):
     add_unique(report['locals'], local)
 
 
+def root_symbol(symbol):
+    return symbol.split('->')[0].split('.')[0].split('[')[0]
+
+
+def locals_by_name(report):
+    return {item['name']: item for item in report.get('locals', [])}
+
+
+def is_observable_root(symbol, report):
+    root = root_symbol(symbol)
+    local = locals_by_name(report).get(root)
+    if not local:
+        return True
+    return local.get('observable') is True
+
+
+def add_observable_access(report, set_name, symbol, expr, rng, reason, location=None):
+    if not is_observable_root(symbol, report):
+        return
+    add_access(report, set_name, symbol, expr, rng, reason, location)
+
+
 def finalize_report(report):
     for r in report['access_sets']['read_set']:
         add_unique(report['inferred_captures']['before'], r)
@@ -86,7 +108,7 @@ def finalize_report(report):
             add_unique(report['inferred_captures']['before'], w)
 
     covered = {
-        x['symbol'].split('->')[0].split('.')[0]
+        root_symbol(x['symbol'])
         for x in report['access_sets']['read_set'] + report['access_sets']['write_set']
     }
     for p in report['parameters']:
@@ -247,6 +269,48 @@ def deref_operand(cursor):
     return compact_expr(token_text(children[0]))
 
 
+def address_operand(cursor):
+    text = token_text(cursor)
+    if not text.startswith('&'):
+        return None
+    children = cursor_children(cursor)
+    if not children:
+        return None
+    return compact_expr(token_text(children[0]))
+
+
+def add_local_address_escape_warning(report, symbol, context, location=None):
+    root = root_symbol(symbol)
+    local = locals_by_name(report).get(root)
+    if not local or local.get('storage') != 'automatic':
+        return
+    warning = {
+        'level': 'warning',
+        'symbol': root,
+        'message': f'address of automatic local variable escapes via {context}',
+    }
+    if location:
+        warning['location'] = location
+    add_unique(report['warnings'], warning)
+
+
+def address_escape_context(cursor, parents):
+    current = cursor
+    while current and current.hash in parents:
+        parent = parents[current.hash]
+        kind = parent.kind.name
+        if kind == 'CALL_EXPR':
+            return 'call argument'
+        if kind == 'RETURN_STMT':
+            return 'return value'
+        if kind == 'BINARY_OPERATOR' and re.search(r'(^|[^=!<>])=(?!=)', token_text(parent)):
+            return 'assignment'
+        if kind not in {'UNEXPOSED_EXPR', 'PAREN_EXPR', 'CSTYLE_CAST_EXPR'}:
+            return None
+        current = parent
+    return None
+
+
 def build_parent_map(cursor, parents):
     for child in cursor.get_children():
         parents[child.hash] = cursor
@@ -292,7 +356,7 @@ def pointer_param_names(report):
 
 def call_arg_root(arg):
     arg = compact_expr(arg)
-    arg = arg.lstrip('&')
+    arg = arg.lstrip('&').strip()
     return arg.split('->')[0].split('.')[0].split('[')[0]
 
 
@@ -307,6 +371,34 @@ def find_function(cursor, source_path):
         if found:
             return found
     return None
+
+
+def collect_locals(cursor, report):
+    for child in cursor.get_children():
+        if child.kind.name == 'VAR_DECL' and is_in_file(child, src_path):
+            storage = local_storage(child)
+            add_local(
+                report,
+                child.spelling,
+                display_type(child.type),
+                storage,
+                cursor_location(child),
+            )
+            if storage == 'static':
+                add_unique(report['warnings'], {
+                    'level': 'warning',
+                    'symbol': child.spelling,
+                    'message': 'function-local static state detected; direct capture requires instrumentation',
+                    'location': cursor_location(child),
+                })
+                add_unique(report['annotation_required'], {
+                    'symbol': child.spelling,
+                    'reason': 'function-local static state is not externally capturable without instrumentation',
+                    'example': {
+                        'strategy': 'instrument static state accessors or replay a call sequence'
+                    }
+                })
+        collect_locals(child, report)
 
 
 def analyze_with_clang():
@@ -346,20 +438,27 @@ def analyze_with_clang():
     report = make_report()
     report['backend'] = 'clang'
 
-    diagnostics = [str(d) for d in tu.diagnostics]
-    for diagnostic in diagnostics:
-        report['warnings'].append({'level': 'info', 'message': diagnostic})
-
     fn = find_function(tu.cursor, src_path)
     if not fn:
+        diagnostics = [str(d) for d in tu.diagnostics]
+        for diagnostic in diagnostics:
+            report['warnings'].append({'level': 'info', 'message': diagnostic})
         report['warnings'].append({'level': 'error', 'message': 'function body not found'})
         return finalize_report(report)
+
+    fn_start = fn.extent.start.line
+    fn_end = fn.extent.end.line
+    for diagnostic in tu.diagnostics:
+        loc = diagnostic.location
+        if loc and loc.file and Path(str(loc.file)).resolve() == src_path.resolve() and fn_start <= loc.line <= fn_end:
+            report['warnings'].append({'level': 'info', 'message': str(diagnostic)})
 
     report['return_type'] = display_type(fn.result_type)
     report['parameters'] = [
         {'name': arg.spelling, 'type': display_type(arg.type)}
         for arg in fn.get_arguments()
     ]
+    collect_locals(fn, report)
 
     parents = {}
     build_parent_map(fn, parents)
@@ -372,6 +471,9 @@ def analyze_with_clang():
             children = cursor_children(cursor)
             args = [compact_expr(token_text(c)) for c in children[1:]]
             callee = cursor.referenced.spelling if cursor.referenced else cursor.spelling
+            for arg in args:
+                if arg.startswith('&'):
+                    add_local_address_escape_warning(report, arg.lstrip('&'), 'call argument', cursor_location(cursor))
             if callee and callee != func_name:
                 add_unique(report['calls'], {
                     'name': callee,
@@ -390,19 +492,25 @@ def analyze_with_clang():
                 expr = f'{base}[{index_text}]'
                 set_name = 'write_set' if is_assignment_lhs(cursor, parents) else 'read_set'
                 reason = 'array write detected' if set_name == 'write_set' else 'array read detected'
-                add_access(report, set_name, base, expr, range_from_index(index_text, loop_bounds), reason, cursor_location(cursor))
+                add_observable_access(report, set_name, base, expr, range_from_index(index_text, loop_bounds), reason, cursor_location(cursor))
                 if is_readwrite(cursor, parents):
-                    add_access(report, 'read_set', base, expr, range_from_index(index_text, loop_bounds), 'array read detected', cursor_location(cursor))
+                    add_observable_access(report, 'read_set', base, expr, range_from_index(index_text, loop_bounds), 'array read detected', cursor_location(cursor))
 
         elif kind == 'UNARY_OPERATOR':
+            addressed = address_operand(cursor)
+            if addressed:
+                context = address_escape_context(cursor, parents)
+                if context:
+                    add_local_address_escape_warning(report, addressed, context, cursor_location(cursor))
+
             operand = deref_operand(cursor)
             if operand:
                 expr = f'*{operand}'
                 set_name = 'write_set' if is_assignment_lhs(cursor, parents) else 'read_set'
                 reason = 'pointer write detected' if set_name == 'write_set' else 'pointer read detected'
-                add_access(report, set_name, operand, expr, 'scalar', reason, cursor_location(cursor))
+                add_observable_access(report, set_name, operand, expr, 'scalar', reason, cursor_location(cursor))
                 if is_readwrite(cursor, parents):
-                    add_access(report, 'read_set', operand, expr, 'scalar', 'pointer read detected', cursor_location(cursor))
+                    add_observable_access(report, 'read_set', operand, expr, 'scalar', 'pointer read detected', cursor_location(cursor))
                 for child in cursor.get_children():
                     visit(child)
                 return
@@ -431,19 +539,9 @@ def analyze_with_clang():
                     return
                 set_name = 'write_set' if is_assignment_lhs(cursor, parents) else 'read_set'
                 reason = 'struct field write detected' if set_name == 'write_set' else 'struct field read detected'
-                add_access(report, set_name, expr, expr, 'scalar', reason, cursor_location(cursor))
+                add_observable_access(report, set_name, expr, expr, 'scalar', reason, cursor_location(cursor))
                 if is_readwrite(cursor, parents):
-                    add_access(report, 'read_set', expr, expr, 'scalar', 'struct field read detected', cursor_location(cursor))
-
-        elif kind == 'VAR_DECL':
-            if is_in_file(cursor, src_path):
-                add_local(
-                    report,
-                    cursor.spelling,
-                    display_type(cursor.type),
-                    local_storage(cursor),
-                    cursor_location(cursor),
-                )
+                    add_observable_access(report, 'read_set', expr, expr, 'scalar', 'struct field read detected', cursor_location(cursor))
 
         elif kind == 'DECL_REF_EXPR' and cursor.referenced:
             ref = cursor.referenced
@@ -452,13 +550,13 @@ def analyze_with_clang():
                 if name.startswith('g_'):
                     if is_assignment_lhs(cursor, parents):
                         add_unique(report['globals_written'], name)
-                        add_access(report, 'write_set', name, name, 'scalar', 'global write', cursor_location(cursor))
+                        add_observable_access(report, 'write_set', name, name, 'scalar', 'global write', cursor_location(cursor))
                         if is_readwrite(cursor, parents):
                             add_unique(report['globals_read'], name)
-                            add_access(report, 'read_set', name, name, 'scalar', 'global read', cursor_location(cursor))
+                            add_observable_access(report, 'read_set', name, name, 'scalar', 'global read', cursor_location(cursor))
                     else:
                         add_unique(report['globals_read'], name)
-                        add_access(report, 'read_set', name, name, 'scalar', 'global read', cursor_location(cursor))
+                        add_observable_access(report, 'read_set', name, name, 'scalar', 'global read', cursor_location(cursor))
 
         for child in cursor.get_children():
             visit(child)

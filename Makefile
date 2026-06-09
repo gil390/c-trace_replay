@@ -21,6 +21,9 @@ RW_FUNCS=rw_array_read_write rw_array_compound rw_array_increment \
 	rw_global_read rw_global_write rw_global_inout \
 	rw_call_with_pointer rw_conditional_read rw_dynamic_index rw_content_dependent_loop \
 	rw_typedef_array rw_nested_struct_field rw_macro_write rw_function_pointer_call
+RW_FUNCS+=rw_local_struct_temp rw_local_struct_output \
+	rw_local_address_escape_call rw_local_address_escape_global rw_local_address_escape_return \
+	rw_local_static_state
 
 .PHONY: all analyze generate capture replay test clean show-report show-warnings sample-run test-rw-cases test-reports
 

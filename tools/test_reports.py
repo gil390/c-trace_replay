@@ -32,6 +32,10 @@ def locals_by_name(report):
     return {item['name']: item for item in report.get('locals', [])}
 
 
+def warnings_for_symbol(report, symbol):
+    return [item for item in report.get('warnings', []) if item.get('symbol') == symbol]
+
+
 def require(condition, message):
     if not condition:
         raise AssertionError(message)
@@ -97,6 +101,53 @@ def check_extra_forms():
             'rw_function_pointer_call should require buffer annotation')
 
 
+def check_local_observability():
+    temp_report = run_analyze('examples/rw_cases.c', 'examples/rw_cases.h', 'rw_local_struct_temp')
+    temp_locals = locals_by_name(temp_report)
+    require('v' in temp_locals, 'local struct temp should list v as local')
+    require(temp_locals['v']['storage'] == 'automatic', 'local struct temp v should be automatic')
+    require(temp_locals['v']['observable'] is False, 'automatic local struct should be non-observable')
+    require('v' not in symbols(temp_report, 'read_set'), 'automatic local should not enter read_set')
+    require('v' not in symbols(temp_report, 'write_set'), 'automatic local should not enter write_set')
+    require('v.x' not in symbols(temp_report, 'read_set'), 'automatic local field should not enter read_set')
+    require('v.x' not in symbols(temp_report, 'write_set'), 'automatic local field should not enter write_set')
+    require('dst' in symbols(temp_report, 'write_set'), 'observable output pointer should remain in write_set')
+
+    output_report = run_analyze('examples/rw_cases.c', 'examples/rw_cases.h', 'rw_local_struct_output')
+    require('v' in locals_by_name(output_report), 'local output should list v as local')
+    require('out' in symbols(output_report, 'write_set'), 'local output should keep observable output writes')
+    require('v' not in symbols(output_report, 'read_set'), 'local output should not capture local v reads')
+
+
+def check_local_address_escapes():
+    call_report = run_analyze('examples/rw_cases.c', 'examples/rw_cases.h', 'rw_local_address_escape_call')
+    require(any('call argument' in item['message'] for item in warnings_for_symbol(call_report, 'v')),
+            'address escape through call argument should be warned')
+    require('v' not in symbols(call_report, 'read_set'), 'escaped automatic local should not enter read_set')
+
+    global_report = run_analyze('examples/rw_cases.c', 'examples/rw_cases.h', 'rw_local_address_escape_global')
+    require(any('assignment' in item['message'] for item in warnings_for_symbol(global_report, 'v')),
+            'address escape through assignment should be warned')
+    require('g_rw_escaped_vector' in symbols(global_report, 'write_set'),
+            'global receiving escaped address should remain observable')
+
+    return_report = run_analyze('examples/rw_cases.c', 'examples/rw_cases.h', 'rw_local_address_escape_return')
+    require(any('return value' in item['message'] for item in warnings_for_symbol(return_report, 'v')),
+            'address escape through return should be warned')
+
+
+def check_local_static_state():
+    report = run_analyze('examples/rw_cases.c', 'examples/rw_cases.h', 'rw_local_static_state')
+    locals_ = locals_by_name(report)
+    require('acc' in locals_, 'local static should be listed')
+    require(locals_['acc']['storage'] == 'static', 'local static should be marked static')
+    require(locals_['acc']['observable'] == 'persistent_internal',
+            'local static should be marked persistent internal')
+    require('acc' in annotation_symbols(report), 'local static should require instrumentation annotation')
+    require('acc' not in symbols(report, 'read_set'), 'local static should not get a direct read binding')
+    require('acc' not in symbols(report, 'write_set'), 'local static should not get a direct write binding')
+
+
 def main():
     checks = [
         check_compute,
@@ -104,6 +155,9 @@ def main():
         check_call_ambiguity,
         check_content_loop,
         check_extra_forms,
+        check_local_observability,
+        check_local_address_escapes,
+        check_local_static_state,
     ]
     for check in checks:
         check()

@@ -18,6 +18,7 @@ case_path = Path('testcases') / f'{func}.case.json'
 case = json.loads(case_path.read_text()) if case_path.exists() else {}
 bindings = dict(case.get('bindings', {}))
 required_annotations = list(report.get('annotation_required', []))
+locals_by_name = {item['name']: item for item in report.get('locals', [])}
 
 
 def c_string(text):
@@ -30,6 +31,11 @@ def safe_name(text):
 
 def root_symbol(symbol):
     return symbol.split('->')[0].split('.')[0].split('[')[0]
+
+
+def is_non_observable_local(symbol):
+    local = locals_by_name.get(root_symbol(symbol))
+    return bool(local) and local.get('observable') is not True
 
 
 def binding_key(symbol):
@@ -64,6 +70,8 @@ def unique_symbols(accesses):
     result = []
     for access in accesses:
         symbol = access['symbol']
+        if is_non_observable_local(symbol):
+            continue
         key = binding_key(symbol)
         dedupe_key = key or root_symbol(symbol)
         if dedupe_key in seen:

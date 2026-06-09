@@ -14,11 +14,18 @@ typedef struct {
     RwContext inner;
 } RwOuter;
 
+typedef struct {
+    double x;
+    double y;
+    double z;
+} RwVector;
+
 typedef uint8_t rw_byte_t;
 typedef void (*RwCallback)(uint8_t *buffer, size_t len);
 
 extern int g_rw_counter;
 extern int g_rw_mode;
+extern RwVector *g_rw_escaped_vector;
 
 void rw_array_read_write(uint8_t *input, uint8_t *output, size_t len);
 void rw_array_compound(uint8_t *buffer, size_t len);
@@ -41,5 +48,11 @@ void rw_typedef_array(rw_byte_t *input, rw_byte_t *output, size_t len);
 void rw_nested_struct_field(RwOuter *outer, int *dst);
 void rw_macro_write(RwContext *ctx, int value);
 void rw_function_pointer_call(RwCallback callback, uint8_t *buffer, size_t len);
+void rw_local_struct_temp(int *dst);
+void rw_local_struct_output(double *out);
+void rw_local_address_escape_call(int *dst);
+void rw_local_address_escape_global(void);
+RwVector *rw_local_address_escape_return(void);
+int rw_local_static_state(int input);
 
 #endif
