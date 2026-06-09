@@ -7,8 +7,9 @@
 | 3 | A faire | Eviter les `no binding inferred` injustifies | Faire en sorte que `no binding inferred` n'apparaisse que pour un symbole reellement observable mais impossible a traduire automatiquement en expression C et en taille memoire. | `tools/generate_harness.py`, `tools/analyze.py` |
 | 4 | A faire | Detecter les echappements d'adresse de variables locales | Ajouter des warnings lorsque l'adresse d'une variable locale automatique s'echappe, par exemple `helper(&v)`, `g_ptr = &v` ou `return &v`. | `tools/analyze.py` |
 | 5 | A faire | Traiter separement les variables locales `static` | Detecter les variables `static` declarees dans une fonction. Les signaler comme etat persistant non capturable directement depuis un harness externe classique, sans generer de faux binding automatique. | `tools/analyze.py`, `tools/generate_harness.py` |
-| 6 | A faire | Ajouter des cas de test dedies | Ajouter des exemples couvrant les locales automatiques, les locales utilisees pour calculer une sortie, les echappements d'adresse, les locales `static` et les noms proches entre globale, parametre et locale. | `examples/rw_cases.c`, `examples/rw_cases.h`, `tools/test_reports.py` |
-| 7 | A faire | Documenter la frontiere observable | Ajouter une section expliquant que le harness capture les frontieres observables de la fonction, pas ses temporaires internes. | `README.md` |
+| 6 | A faire | Lister les variables internes decouvertes | Ajouter au rapport un champ structure, par exemple `locals`, listant les variables internes de la fonction avec leur nom, type, storage (`automatic`, `static`), location et statut d'observabilite. | `tools/analyze.py`, `README.md` |
+| 7 | A faire | Ajouter des cas de test dedies | Ajouter des exemples couvrant les locales automatiques, les locales utilisees pour calculer une sortie, les echappements d'adresse, les locales `static`, la liste `locals` et les noms proches entre globale, parametre et locale. | `examples/rw_cases.c`, `examples/rw_cases.h`, `tools/test_reports.py` |
+| 8 | A faire | Documenter la frontiere observable | Ajouter une section expliquant que le harness capture les frontieres observables de la fonction, pas ses temporaires internes. | `README.md` |
 
 ## Notes
 
@@ -32,5 +33,25 @@ Annotation possible pour une variable locale `static` :
 {
   "symbol": "acc",
   "reason": "function-local static state is not externally capturable without instrumentation"
+}
+```
+
+Exemple de champ `locals` attendu :
+
+```json
+{
+  "locals": [
+    {
+      "name": "v",
+      "type": "struct vecteur",
+      "storage": "automatic",
+      "observable": false,
+      "location": {
+        "file": "examples/foo.c",
+        "line": 12,
+        "column": 20
+      }
+    }
+  ]
 }
 ```
