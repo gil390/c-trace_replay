@@ -111,13 +111,22 @@ def add_observable_access(report, set_name, symbol, expr, rng, reason, location=
     add_access(report, set_name, symbol, expr, rng, reason, location)
 
 
+def add_global_for_access(report, set_name, symbol):
+    root = root_symbol(symbol)
+    if set_name == 'read_set':
+        add_unique(report['globals_read'], root)
+    elif set_name == 'write_set':
+        add_unique(report['globals_written'], root)
+
+
 def finalize_report(report):
     for r in report['access_sets']['read_set']:
         add_unique(report['inferred_captures']['before'], r)
     for w in report['access_sets']['write_set']:
         add_unique(report['inferred_captures']['after'], w)
-        if w['symbol'] in report['globals_written'] and not any(
-            item['symbol'] == w['symbol'] for item in report['inferred_captures']['before']
+        w_root = root_symbol(w['symbol'])
+        if w_root in report['globals_written'] and not any(
+            root_symbol(item['symbol']) == w_root for item in report['inferred_captures']['before']
         ):
             add_unique(report['inferred_captures']['before'], w)
 
@@ -415,6 +424,17 @@ def collect_locals(cursor, report):
         collect_locals(child, report)
 
 
+def collect_global_names(cursor):
+    names = set()
+    for child in cursor.get_children():
+        if (child.kind.name == 'VAR_DECL'
+                and child.semantic_parent.kind.name == 'TRANSLATION_UNIT'
+                and child.spelling):
+            names.add(child.spelling)
+        names.update(collect_global_names(child))
+    return names
+
+
 def analyze_with_clang():
     try:
         from clang.cindex import Config, Index
@@ -473,10 +493,18 @@ def analyze_with_clang():
         for arg in fn.get_arguments()
     ]
     collect_locals(fn, report)
+    global_names = collect_global_names(tu.cursor)
 
     parents = {}
     build_parent_map(fn, parents)
     loop_bounds = detect_loop_bounds(fn)
+
+    def add_semantic_access(set_name, symbol, expr, rng, reason, location=None):
+        if not is_observable_root(symbol, report):
+            return
+        add_access(report, set_name, symbol, expr, rng, reason, location)
+        if root_symbol(symbol) in global_names:
+            add_global_for_access(report, set_name, symbol)
 
     def visit(cursor):
         kind = cursor.kind.name
@@ -506,9 +534,9 @@ def analyze_with_clang():
                 expr = f'{base}[{index_text}]'
                 set_name = 'write_set' if is_assignment_lhs(cursor, parents) else 'read_set'
                 reason = 'array write detected' if set_name == 'write_set' else 'array read detected'
-                add_observable_access(report, set_name, base, expr, range_from_index(index_text, loop_bounds), reason, cursor_location(cursor))
+                add_semantic_access(set_name, base, expr, range_from_index(index_text, loop_bounds), reason, cursor_location(cursor))
                 if is_readwrite(cursor, parents):
-                    add_observable_access(report, 'read_set', base, expr, range_from_index(index_text, loop_bounds), 'array read detected', cursor_location(cursor))
+                    add_semantic_access('read_set', base, expr, range_from_index(index_text, loop_bounds), 'array read detected', cursor_location(cursor))
 
         elif kind == 'UNARY_OPERATOR':
             addressed = address_operand(cursor)
@@ -522,9 +550,9 @@ def analyze_with_clang():
                 expr = f'*{operand}'
                 set_name = 'write_set' if is_assignment_lhs(cursor, parents) else 'read_set'
                 reason = 'pointer write detected' if set_name == 'write_set' else 'pointer read detected'
-                add_observable_access(report, set_name, operand, expr, 'scalar', reason, cursor_location(cursor))
+                add_semantic_access(set_name, operand, expr, 'scalar', reason, cursor_location(cursor))
                 if is_readwrite(cursor, parents):
-                    add_observable_access(report, 'read_set', operand, expr, 'scalar', 'pointer read detected', cursor_location(cursor))
+                    add_semantic_access('read_set', operand, expr, 'scalar', 'pointer read detected', cursor_location(cursor))
                 for child in cursor.get_children():
                     visit(child)
                 return
@@ -553,24 +581,25 @@ def analyze_with_clang():
                     return
                 set_name = 'write_set' if is_assignment_lhs(cursor, parents) else 'read_set'
                 reason = 'struct field write detected' if set_name == 'write_set' else 'struct field read detected'
-                add_observable_access(report, set_name, expr, expr, 'scalar', reason, cursor_location(cursor))
+                add_semantic_access(set_name, expr, expr, 'scalar', reason, cursor_location(cursor))
                 if is_readwrite(cursor, parents):
-                    add_observable_access(report, 'read_set', expr, expr, 'scalar', 'struct field read detected', cursor_location(cursor))
+                    add_semantic_access('read_set', expr, expr, 'scalar', 'struct field read detected', cursor_location(cursor))
 
         elif kind == 'DECL_REF_EXPR' and cursor.referenced:
             ref = cursor.referenced
             if ref.kind.name == 'VAR_DECL' and ref.semantic_parent.kind.name == 'TRANSLATION_UNIT':
+                parent = parents.get(cursor.hash)
+                if parent and parent.kind.name == 'MEMBER_REF_EXPR':
+                    for child in cursor.get_children():
+                        visit(child)
+                    return
                 name = ref.spelling
-                if name.startswith('g_'):
-                    if is_assignment_lhs(cursor, parents):
-                        add_unique(report['globals_written'], name)
-                        add_observable_access(report, 'write_set', name, name, 'scalar', 'global write', cursor_location(cursor))
-                        if is_readwrite(cursor, parents):
-                            add_unique(report['globals_read'], name)
-                            add_observable_access(report, 'read_set', name, name, 'scalar', 'global read', cursor_location(cursor))
-                    else:
-                        add_unique(report['globals_read'], name)
-                        add_observable_access(report, 'read_set', name, name, 'scalar', 'global read', cursor_location(cursor))
+                if is_assignment_lhs(cursor, parents):
+                    add_semantic_access('write_set', name, name, 'scalar', 'global write', cursor_location(cursor))
+                    if is_readwrite(cursor, parents):
+                        add_semantic_access('read_set', name, name, 'scalar', 'global read', cursor_location(cursor))
+                else:
+                    add_semantic_access('read_set', name, name, 'scalar', 'global read', cursor_location(cursor))
 
         for child in cursor.get_children():
             visit(child)

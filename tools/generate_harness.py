@@ -188,7 +188,10 @@ def infer_case_from_report():
 
     for access in accesses:
         symbol = root_symbol(access['symbol'])
-        if symbol.startswith('g_') and symbol not in bindings:
+        if symbol in report.get('globals_read', []) + report.get('globals_written', []) and symbol not in bindings:
+            bindings[symbol] = {'expr': f'&{symbol}', 'size': f'sizeof({symbol})'}
+    for symbol in report.get('globals_read', []) + report.get('globals_written', []):
+        if symbol not in bindings:
             bindings[symbol] = {'expr': f'&{symbol}', 'size': f'sizeof({symbol})'}
 
     return {
@@ -305,7 +308,10 @@ def trace_bindings():
         result[param['name']] = trace_binding_for_param(param)
     for access in report.get('access_sets', {}).get('read_set', []) + report.get('access_sets', {}).get('write_set', []):
         root = root_symbol(access['symbol'])
-        if root.startswith('g_') and root not in result:
+        if root in report.get('globals_read', []) + report.get('globals_written', []) and root not in result:
+            result[root] = {'expr': f'&{root}', 'size': f'sizeof({root})'}
+    for root in report.get('globals_read', []) + report.get('globals_written', []):
+        if root not in result:
             result[root] = {'expr': f'&{root}', 'size': f'sizeof({root})'}
     return result
 

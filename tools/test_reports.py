@@ -176,6 +176,31 @@ def check_generator_skips_stale_local_capture():
             'generator should omit stale non-observable local capture')
 
 
+def check_module_global_without_naming_convention():
+    report = run_analyze('examples/rw_cases.c', 'examples/rw_cases.h', 'rw_module_global_vector_inout')
+    require('_V' in report['globals_read'],
+            'module global _V should be classified as read without naming convention')
+    require('_V' in report['globals_written'],
+            'module global _V should be classified as written without naming convention')
+    require('_V.x' in symbols(report, 'read_set'), 'global field _V.x should appear in read_set')
+    require('_V.y' in symbols(report, 'write_set'), 'global field _V.y should appear in write_set')
+
+    outdir = Path(tempfile.mkdtemp(prefix='ctrace_generate_global_vector_'))
+    report_path = outdir / 'rw_module_global_vector_inout_report.json'
+    report_path.write_text(json.dumps(report))
+    subprocess.run(
+        [sys.executable, str(GENERATE), str(report_path), str(outdir)],
+        cwd=ROOT,
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+    generated = (outdir / 'harness_rw_module_global_vector_inout_capture.c').read_text()
+    require('no binding inferred' not in generated,
+            'generator should infer binding for module global without naming convention')
+    require('sizeof(_V)' in generated,
+            'generator should bind module global by semantic global name')
+
+
 def main():
     checks = [
         check_compute,
@@ -187,6 +212,7 @@ def main():
         check_local_address_escapes,
         check_local_static_state,
         check_generator_skips_stale_local_capture,
+        check_module_global_without_naming_convention,
     ]
     for check in checks:
         check()
