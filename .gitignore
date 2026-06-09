@@ -1,1 +1,9 @@
-__pycache__
+__pycache__/
+*.pyc
+
+generated/
+testcases/*_case_001/
+testcases/*_trace_001/
+testcases/case_001/
+
+venv/
