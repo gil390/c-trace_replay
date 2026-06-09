@@ -1,0 +1,9 @@
+{
+  "clang_candidates": [
+    "/usr/lib/libclang.so",
+    "/usr/lib/llvm/lib/libclang.so",
+    "/usr/lib/llvm-18/lib/libclang.so",
+    "/usr/lib/llvm-17/lib/libclang.so",
+    "/usr/lib/llvm-16/lib/libclang.so"
+  ]
+}

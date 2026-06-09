@@ -17,6 +17,16 @@ outdir.mkdir(parents=True, exist_ok=True)
 src = src_path.read_text()
 hdr = hdr_path.read_text()
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+CONFIG_PATH = PROJECT_ROOT / 'configuration' / 'config.json'
+DEFAULT_CLANG_CANDIDATES = [
+    '/usr/lib/libclang.so',
+    '/usr/lib/llvm/lib/libclang.so',
+    '/usr/lib/llvm-18/lib/libclang.so',
+    '/usr/lib/llvm-17/lib/libclang.so',
+    '/usr/lib/llvm-16/lib/libclang.so',
+]
+
 
 def make_report():
     return {
@@ -93,6 +103,33 @@ def write_report(report):
     print('ANALYZE OK')
     print(f"backend: {report.get('backend', 'unknown')}")
     print(f"warnings: {len(report['warnings'])}, annotations required: {len(report['annotation_required'])}")
+
+
+def load_clang_candidates():
+    if not CONFIG_PATH.exists():
+        return DEFAULT_CLANG_CANDIDATES
+
+    try:
+        config = json.loads(CONFIG_PATH.read_text())
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f'invalid JSON in {CONFIG_PATH}: {exc.msg}') from exc
+
+    if not isinstance(config, dict):
+        raise RuntimeError(f'{CONFIG_PATH}: config must be a JSON object')
+
+    candidates = None
+    for key in ('clang_candidates', 'clang_library_candidates', 'candidates'):
+        if key in config:
+            candidates = config[key]
+            break
+    if candidates is None and isinstance(config.get('clang'), dict):
+        candidates = config['clang'].get('candidates')
+    if candidates is None:
+        return DEFAULT_CLANG_CANDIDATES
+    if not isinstance(candidates, list) or not all(isinstance(candidate, str) for candidate in candidates):
+        raise RuntimeError(f'{CONFIG_PATH}: clang candidates must be a list of strings')
+
+    return [str(Path(candidate).expanduser()) for candidate in candidates]
 
 
 def token_text(cursor):
@@ -249,13 +286,7 @@ def analyze_with_clang():
     except ModuleNotFoundError as exc:
         raise RuntimeError('python bindings for clang are not installed') from exc
 
-    candidates = [
-        '/usr/lib/libclang.so',
-        '/usr/lib/llvm/lib/libclang.so',
-        '/usr/lib/llvm-18/lib/libclang.so',
-        '/usr/lib/llvm-17/lib/libclang.so',
-        '/usr/lib/llvm-16/lib/libclang.so',
-    ]
+    candidates = load_clang_candidates()
     if not Config.loaded:
         for candidate in candidates:
             if Path(candidate).exists():
