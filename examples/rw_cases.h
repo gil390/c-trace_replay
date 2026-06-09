@@ -26,6 +26,7 @@ typedef void (*RwCallback)(uint8_t *buffer, size_t len);
 extern int g_rw_counter;
 extern int g_rw_mode;
 extern RwVector *g_rw_escaped_vector;
+extern RwVector _V;
 
 void rw_array_read_write(uint8_t *input, uint8_t *output, size_t len);
 void rw_array_compound(uint8_t *buffer, size_t len);
@@ -54,5 +55,6 @@ void rw_local_address_escape_call(int *dst);
 void rw_local_address_escape_global(void);
 RwVector *rw_local_address_escape_return(void);
 int rw_local_static_state(int input);
+double rw_module_global_vector_inout(double delta);
 
 #endif

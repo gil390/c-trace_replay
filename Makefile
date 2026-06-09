@@ -27,7 +27,7 @@ RW_FUNCS=rw_array_read_write rw_array_compound rw_array_increment \
 	rw_typedef_array rw_nested_struct_field rw_macro_write rw_function_pointer_call
 RW_FUNCS+=rw_local_struct_temp rw_local_struct_output \
 	rw_local_address_escape_call rw_local_address_escape_global rw_local_address_escape_return \
-	rw_local_static_state
+	rw_local_static_state rw_module_global_vector_inout
 
 .PHONY: all analyze generate capture replay test trace-generate trace-capture-build trace-replay-build trace-capture trace-replay trace-test clean show-report show-warnings sample-run test-rw-cases test-reports test-trace
 

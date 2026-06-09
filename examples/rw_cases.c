@@ -5,6 +5,7 @@
 int g_rw_counter = 0;
 int g_rw_mode = 1;
 RwVector *g_rw_escaped_vector = 0;
+RwVector _V = {1.0, 2.0, 3.0};
 
 static void mutate_buffer(uint8_t *buffer, size_t len)
 {
@@ -182,4 +183,13 @@ int rw_local_static_state(int input)
     static int acc = 0;
     acc += input;
     return acc;
+}
+
+double rw_module_global_vector_inout(double delta)
+{
+    double previous = _V.x + _V.y + _V.z;
+    _V.x += delta;
+    _V.y = _V.x + previous;
+    _V.z = _V.y - delta;
+    return previous;
 }
