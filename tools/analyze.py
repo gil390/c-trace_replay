@@ -76,7 +76,21 @@ def add_local(report, name, typ, storage, location=None):
 
 
 def root_symbol(symbol):
-    return symbol.split('->')[0].split('.')[0].split('[')[0]
+    symbol = compact_expr(str(symbol))
+    previous = None
+    while previous != symbol:
+        previous = symbol
+        symbol = symbol.strip()
+        symbol = symbol.lstrip('&*').strip()
+        if symbol.startswith('(') and ')' in symbol:
+            inner = symbol[1:symbol.find(')')].strip()
+            rest = symbol[symbol.find(')') + 1:].strip()
+            if re.match(r'^[A-Za-z_]\w*(?:\s+[A-Za-z_]\w*)*\s*\**$', inner) and rest:
+                symbol = rest
+            elif rest == '':
+                symbol = inner
+    match = re.search(r'\b[A-Za-z_]\w*\b', symbol)
+    return match.group(0) if match else symbol.split('->')[0].split('.')[0].split('[')[0]
 
 
 def locals_by_name(report):

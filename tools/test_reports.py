@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ANALYZE = ROOT / 'tools' / 'analyze.py'
+GENERATE = ROOT / 'tools' / 'generate_harness.py'
 
 
 def run_analyze(src, hdr, func):
@@ -148,6 +149,33 @@ def check_local_static_state():
     require('acc' not in symbols(report, 'write_set'), 'local static should not get a direct write binding')
 
 
+def check_generator_skips_stale_local_capture():
+    report = run_analyze('examples/rw_cases.c', 'examples/rw_cases.h', 'rw_local_struct_temp')
+    stale_access = {
+        'symbol': 'v.x',
+        'expr': 'v.x',
+        'range': 'scalar',
+        'reason': 'stale local field from older analyzer',
+    }
+    report['access_sets']['read_set'].append(stale_access)
+    report['inferred_captures']['before'].append(stale_access)
+
+    outdir = Path(tempfile.mkdtemp(prefix='ctrace_generate_stale_local_'))
+    report_path = outdir / 'rw_local_struct_temp_report.json'
+    report_path.write_text(json.dumps(report))
+    subprocess.run(
+        [sys.executable, str(GENERATE), str(report_path), str(outdir)],
+        cwd=ROOT,
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+    generated = (outdir / 'harness_rw_local_struct_temp_capture.c').read_text()
+    require('no binding inferred' not in generated,
+            'generator should not emit missing binding for non-observable locals')
+    require('v.x' not in generated,
+            'generator should omit stale non-observable local capture')
+
+
 def main():
     checks = [
         check_compute,
@@ -158,6 +186,7 @@ def main():
         check_local_observability,
         check_local_address_escapes,
         check_local_static_state,
+        check_generator_skips_stale_local_capture,
     ]
     for check in checks:
         check()

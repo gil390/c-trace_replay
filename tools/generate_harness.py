@@ -36,7 +36,21 @@ def safe_name(text):
 
 
 def root_symbol(symbol):
-    return symbol.split('->')[0].split('.')[0].split('[')[0]
+    symbol = re.sub(r'\s+', ' ', str(symbol)).strip()
+    previous = None
+    while previous != symbol:
+        previous = symbol
+        symbol = symbol.strip()
+        symbol = symbol.lstrip('&*').strip()
+        if symbol.startswith('(') and ')' in symbol:
+            inner = symbol[1:symbol.find(')')].strip()
+            rest = symbol[symbol.find(')') + 1:].strip()
+            if re.match(r'^[A-Za-z_]\w*(?:\s+[A-Za-z_]\w*)*\s*\**$', inner) and rest:
+                symbol = rest
+            elif rest == '':
+                symbol = inner
+    match = re.search(r'\b[A-Za-z_]\w*\b', symbol)
+    return match.group(0) if match else symbol.split('->')[0].split('.')[0].split('[')[0]
 
 
 def is_non_observable_local(symbol):
@@ -197,6 +211,8 @@ else:
 
 
 def require_binding(symbol):
+    if is_non_observable_local(symbol):
+        return None
     binding = binding_for(symbol)
     if not binding:
         add_required(symbol, 'no binding inferred for symbol', {
@@ -209,6 +225,8 @@ def require_binding(symbol):
 def save_line(case_dir, symbol, phase):
     binding = require_binding(symbol)
     if not binding:
+        if is_non_observable_local(symbol):
+            return f'    /* skipped non-observable local {c_string(symbol)} {phase}. */'
         return f'    /* TODO: save {c_string(symbol)} {phase}: no binding inferred. */'
     ident = binding_id(symbol)
     return f'    save_bin("{case_dir}/{ident}_{phase}.bin", {binding["expr"]}, {binding["size"]});'
@@ -217,6 +235,8 @@ def save_line(case_dir, symbol, phase):
 def load_line(case_dir, symbol, phase):
     binding = require_binding(symbol)
     if not binding:
+        if is_non_observable_local(symbol):
+            return f'    /* skipped non-observable local {c_string(symbol)} {phase}. */'
         return f'    /* TODO: load {c_string(symbol)} {phase}: no binding inferred. */'
     ident = binding_id(symbol)
     return f'    if (load_bin("{case_dir}/{ident}_{phase}.bin", {binding["expr"]}, {binding["size"]}) != 0) {{ printf("REPLAY FAIL: cannot load {ident}_{phase}\\n"); return 1; }}'
@@ -225,6 +245,8 @@ def load_line(case_dir, symbol, phase):
 def expected_decl(symbol):
     binding = require_binding(symbol)
     if not binding:
+        if is_non_observable_local(symbol):
+            return f'    /* skipped non-observable local {c_string(symbol)} expected storage. */'
         return f'    /* TODO: expected storage for {c_string(symbol)}: no binding inferred. */'
     ident = binding_id(symbol)
     return f'    uint8_t expected_{ident}[{binding["size"]}];'
@@ -233,6 +255,8 @@ def expected_decl(symbol):
 def expected_load_line(case_dir, symbol):
     binding = require_binding(symbol)
     if not binding:
+        if is_non_observable_local(symbol):
+            return f'    /* skipped non-observable local {c_string(symbol)} expected load. */'
         return f'    /* TODO: load expected {c_string(symbol)}: no binding inferred. */'
     ident = binding_id(symbol)
     return f'    if (load_bin("{case_dir}/{ident}_expected.bin", expected_{ident}, {binding["size"]}) != 0) {{ printf("REPLAY FAIL: cannot load {ident}_expected\\n"); return 1; }}'
@@ -241,6 +265,8 @@ def expected_load_line(case_dir, symbol):
 def compare_line(symbol):
     binding = require_binding(symbol)
     if not binding:
+        if is_non_observable_local(symbol):
+            return f'    /* skipped non-observable local {c_string(symbol)} compare. */'
         return f'    /* TODO: compare {c_string(symbol)}: no binding inferred. */'
     ident = binding_id(symbol)
     return f'''
@@ -313,6 +339,8 @@ def trace_binding_id(symbol, trace_binding_map):
 def trace_save_line(symbol, phase, trace_binding_map):
     binding = trace_binding_for(symbol, trace_binding_map)
     if not binding:
+        if is_non_observable_local(symbol):
+            return f'    /* skipped non-observable local {c_string(symbol)} {phase}. */'
         add_required(symbol, 'no trace binding inferred for symbol', {
             'expr': 'TODO',
             'size_expr': 'TODO',
@@ -328,6 +356,8 @@ def trace_save_line(symbol, phase, trace_binding_map):
 def trace_load_line(symbol, phase):
     binding = require_binding(symbol)
     if not binding:
+        if is_non_observable_local(symbol):
+            return f'    /* skipped non-observable local {c_string(symbol)} {phase}. */'
         return f'    /* TODO: trace load {c_string(symbol)} {phase}: no binding inferred. */'
     ident = binding_id(symbol)
     return (
@@ -339,6 +369,8 @@ def trace_load_line(symbol, phase):
 def trace_expected_decl(symbol):
     binding = require_binding(symbol)
     if not binding:
+        if is_non_observable_local(symbol):
+            return f'        /* skipped non-observable local {c_string(symbol)} expected storage. */'
         return f'        /* TODO: expected storage for {c_string(symbol)}: no binding inferred. */'
     ident = binding_id(symbol)
     return f'        uint8_t expected_{ident}[{binding["size"]}];'
@@ -347,6 +379,8 @@ def trace_expected_decl(symbol):
 def trace_expected_load_line(symbol):
     binding = require_binding(symbol)
     if not binding:
+        if is_non_observable_local(symbol):
+            return f'        /* skipped non-observable local {c_string(symbol)} expected load. */'
         return f'        /* TODO: trace load expected {c_string(symbol)}: no binding inferred. */'
     ident = binding_id(symbol)
     return (
@@ -358,6 +392,8 @@ def trace_expected_load_line(symbol):
 def trace_compare_line(symbol):
     binding = require_binding(symbol)
     if not binding:
+        if is_non_observable_local(symbol):
+            return f'        /* skipped non-observable local {c_string(symbol)} compare. */'
         return f'        /* TODO: trace compare {c_string(symbol)}: no binding inferred. */'
     ident = binding_id(symbol)
     return f'''
