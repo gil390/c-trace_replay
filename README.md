@@ -214,6 +214,34 @@ Chaque appel détecté contient :
 `indirect` indique si l'appel est indirect ou non résolu. `location` permet de
 retrouver rapidement le code à examiner.
 
+Le champ `risk` n'est pas un score de sûreté du programme. Il décrit le niveau
+de confiance de l'analyseur sur sa compréhension de l'appel et de ses effets
+possibles.
+
+| Valeur | Signification actuelle | Utilisation recommandée |
+| --- | --- | --- |
+| `low` | L'appel est direct et Clang a résolu la fonction appelée. | L'appel peut être analysé plus finement par la suite, par exemple par analyse récursive du callee. |
+| `unknown` | L'appel est indirect, non résolu ou son callee exact n'est pas connu. | Examiner `reasons` et produire une annotation si un pointeur, une globale ou un état observable peut être modifié. |
+
+`reasons` explique pourquoi le risque n'est pas bas. Par exemple,
+`"unresolved callee"` signifie que l'analyseur ne sait pas quelle fonction sera
+appelée à l'exécution.
+
+Ce champ sert surtout de guide d'amélioration de l'analyse :
+
+* un appel `low` avec des arguments pointeurs peut devenir analysable en
+  ajoutant une analyse récursive de la fonction appelée ;
+* un appel `unknown` peut nécessiter une annotation utilisateur, une résolution
+  de pointeur de fonction, ou un modèle manuel des effets du callee ;
+* un appel indirect qui reçoit une mémoire observable, comme `callback(buffer,
+  len)`, doit être traité avec prudence car l'analyseur ne peut pas déduire seul
+  si `buffer` est lu, écrit ou les deux.
+
+À ce stade du prototype, `risk` reste volontairement simple. Les valeurs
+existantes distinguent surtout les appels compris (`low`) des appels non
+résolus (`unknown`). Des niveaux plus fins pourront être ajoutés lorsque
+l'analyse interprocédurale progressera.
+
 ### Entrées `read_set` et `write_set`
 
 Chaque accès mémoire contient :
