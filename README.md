@@ -156,7 +156,7 @@ avant l'appel et ce qui doit être comparé après le replay.
 | `inferred_captures.after` | Données à sauvegarder ou comparer après l'appel. |
 | `warnings` | Informations ou risques non bloquants à examiner. |
 | `annotation_required` | Ambiguïtés bloquantes nécessitant une information complémentaire. |
-| `backend` | Moteur d'analyse utilisé, par exemple `clang` ou `regex-fallback`. |
+| `backend` | Moteur d'analyse utilisé. La valeur attendue est `clang`. |
 
 ### Entrées `parameters`
 
@@ -376,8 +376,12 @@ Ces cas sont signalés explicitement afin d'éviter toute conclusion erronée.
 
 ## État actuel du prototype
 
-Le prototype actuel analyse le code C avec Clang/libclang lorsque les dépendances
-sont disponibles. Il produit un rapport JSON contenant notamment :
+Le prototype actuel analyse le code C avec Clang/libclang. Ce backend est
+obligatoire : aucun fallback regex n'est utilisé, car la classification fiable
+des paramètres, locales, globales et états persistants dépend de l'AST et de la
+résolution sémantique fournis par Clang.
+
+Il produit un rapport JSON contenant notamment :
 
 * la fonction analysée ;
 * son type de retour ;
