@@ -146,6 +146,7 @@ avant l'appel et ce qui doit être comparé après le replay.
 | `function` | Nom de la fonction cible. |
 | `return_type` | Type de retour détecté. |
 | `parameters` | Liste des paramètres de la fonction avec leur nom et leur type. |
+| `locals` | Variables internes découvertes dans le corps de la fonction. |
 | `globals_read` | Variables globales lues par la fonction. |
 | `globals_written` | Variables globales modifiées par la fonction. |
 | `calls` | Fonctions appelées depuis la fonction cible. |
@@ -167,6 +168,29 @@ Chaque paramètre contient :
   "type": "uint8_t *"
 }
 ```
+
+### Entrées `locals`
+
+Chaque variable interne détectée contient :
+
+```json
+{
+  "name": "local",
+  "type": "uint8_t",
+  "storage": "automatic",
+  "observable": false,
+  "location": {
+    "file": "examples/sample.c",
+    "line": 23,
+    "column": 17
+  }
+}
+```
+
+`storage` vaut notamment `automatic` pour une variable locale ordinaire et
+`static` pour un état local persistant. Une variable automatique est listée pour
+expliquer ce que l'analyse a découvert, mais elle ne doit pas être capturée
+comme une frontière observable.
 
 ### Entrées `calls`
 

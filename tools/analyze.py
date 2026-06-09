@@ -35,6 +35,7 @@ def make_report():
         'function': func_name,
         'return_type': None,
         'parameters': [],
+        'locals': [],
         'globals_read': [],
         'globals_written': [],
         'calls': [],
@@ -60,6 +61,18 @@ def add_access(report, set_name, symbol, expr, rng, reason, location=None):
     if location:
         access['location'] = location
     add_unique(report['access_sets'][set_name], access)
+
+
+def add_local(report, name, typ, storage, location=None):
+    local = {
+        'name': name,
+        'type': typ,
+        'storage': storage,
+        'observable': 'persistent_internal' if storage == 'static' else False,
+    }
+    if location:
+        local['location'] = location
+    add_unique(report['locals'], local)
 
 
 def finalize_report(report):
@@ -170,6 +183,18 @@ def cursor_location(cursor):
         'line': loc.line,
         'column': loc.column,
     }
+
+
+def local_storage(cursor):
+    storage = getattr(cursor, 'storage_class', None)
+    storage_name = getattr(storage, 'name', 'NONE')
+    if storage_name == 'STATIC':
+        return 'static'
+    if storage_name == 'EXTERN':
+        return 'extern'
+    if storage_name == 'REGISTER':
+        return 'register'
+    return 'automatic'
 
 
 def is_assignment_lhs(cursor, parents):
@@ -409,6 +434,16 @@ def analyze_with_clang():
                 add_access(report, set_name, expr, expr, 'scalar', reason, cursor_location(cursor))
                 if is_readwrite(cursor, parents):
                     add_access(report, 'read_set', expr, expr, 'scalar', 'struct field read detected', cursor_location(cursor))
+
+        elif kind == 'VAR_DECL':
+            if is_in_file(cursor, src_path):
+                add_local(
+                    report,
+                    cursor.spelling,
+                    display_type(cursor.type),
+                    local_storage(cursor),
+                    cursor_location(cursor),
+                )
 
         elif kind == 'DECL_REF_EXPR' and cursor.referenced:
             ref = cursor.referenced

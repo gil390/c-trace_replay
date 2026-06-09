@@ -28,6 +28,10 @@ def annotation_symbols(report):
     return {item['symbol'] for item in report['annotation_required']}
 
 
+def locals_by_name(report):
+    return {item['name']: item for item in report.get('locals', [])}
+
+
 def require(condition, message):
     if not condition:
         raise AssertionError(message)
@@ -42,6 +46,16 @@ def check_compute():
     require('output' in symbols(report, 'write_set'), 'compute should write output')
     require('g_counter' in symbols(report, 'write_set'), 'compute should write g_counter')
     require(not report['annotation_required'], 'compute should not require annotations')
+
+    locals_ = locals_by_name(report)
+    require({'i', 'local', 'f'} <= set(locals_),
+            'compute should list discovered function-local variables')
+    require(locals_['local']['type'] == 'uint8_t',
+            'compute local variable should include its type')
+    require(locals_['local']['storage'] == 'automatic',
+            'compute local variable should be marked automatic')
+    require(locals_['local']['observable'] is False,
+            'compute local automatic variable should be marked non-observable')
 
 
 def check_pointer_inout():
