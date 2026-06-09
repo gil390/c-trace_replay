@@ -404,6 +404,57 @@ Le replay compare actuellement :
 * les zones mémoire associées au `write_set` ;
 * les variables globales modifiées.
 
+### Mode trace longue
+
+Le mode par défaut capture et rejoue un seul appel. Le mode `trace` généralise
+ce mécanisme à une séquence d'appels observés.
+
+Le générateur produit alors :
+
+* `generated/trace_<fonction>_capture.c` ;
+* `generated/trace_<fonction>_replay.c`.
+
+Le fichier de capture contient un wrapper :
+
+```c
+ret_type __ctrace_capture_F(args...)
+{
+    size_t call_id = __ctrace_next_call_id();
+    capture_before(call_id, args...);
+    ret_type ret = F(args...);
+    capture_after(call_id, args..., ret);
+    return ret;
+}
+```
+
+Ce wrapper ne remplace pas l'analyse de `F`. Il sert à intercepter les appels
+réels à `F` pendant une exécution longue, afin d'enregistrer avant et après
+chaque appel.
+
+Chaque appel est stocké dans un sous-dossier :
+
+```text
+testcases/<fonction>_trace_001/
+  manifest.json
+  call_000001/
+    input_before.bin
+    output_expected.bin
+    return_expected.bin
+  call_000002/
+    ...
+```
+
+`manifest.json` contient la fonction, le mode, le nombre d'appels et la liste
+des dossiers `call_XXXXXX`. Le replay lit ce manifest, restaure les entrées de
+chaque appel, appelle la fonction cible et compare les sorties dans le même
+ordre.
+
+Ce mode est un replay séquentiel. Il convient aux globales et aux états qui
+peuvent être reconstruits en rejouant la trace depuis un état initial connu. Un
+replay appel-par-appel indépendant nécessiterait une instrumentation
+supplémentaire pour restaurer les états internes non accessibles directement,
+par exemple les variables locales `static`.
+
 Les cas réellement ambigus restent explicitement signalés. Par exemple, un
 pointeur transmis à une fonction non analysée, une boucle dépendante du contenu
 mémoire ou une variable locale `static` peut produire une entrée dans
@@ -441,6 +492,18 @@ Capturer puis rejouer un cas :
 make test FUNC=compute
 ```
 
+Générer les harness de trace longue :
+
+```bash
+make trace-generate FUNC=compute
+```
+
+Capturer puis rejouer une trace longue :
+
+```bash
+make trace-test FUNC=compute
+```
+
 Tester le même pipeline sur `toto` :
 
 ```bash
@@ -459,6 +522,12 @@ Vérifier automatiquement plusieurs rapports JSON :
 make test-reports
 ```
 
+Vérifier automatiquement le mode trace :
+
+```bash
+make test-trace
+```
+
 Nettoyer les fichiers générés :
 
 ```bash
@@ -472,6 +541,10 @@ Les principaux fichiers générés sont :
   informations complémentaires sont nécessaires ;
 * `generated/harness_<fonction>_capture.c` ;
 * `generated/harness_<fonction>_replay.c` ;
+* `generated/trace_<fonction>_capture.c` ;
+* `generated/trace_<fonction>_replay.c` ;
 * `generated/capture_<fonction>` ;
 * `generated/replay_<fonction>` ;
-* `testcases/<fonction>_case_001/*.bin`.
+* `testcases/<fonction>_case_001/*.bin` ;
+* `testcases/<fonction>_trace_001/manifest.json` ;
+* `testcases/<fonction>_trace_001/call_XXXXXX/*.bin`.

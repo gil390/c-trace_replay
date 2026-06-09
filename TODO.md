@@ -60,16 +60,16 @@ Exemple de champ `locals` attendu :
 
 | N | Etat | Tache | Description | Fichiers concernes |
 |---|---|---|---|---|
-| T1 | A faire | Ajouter un mode de generation `trace` | Permettre au generateur de produire un harness de trace longue en plus du mode actuel `single`, sans changer le fonctionnement existant. | `tools/generate_harness.py`, `Makefile` |
-| T2 | A faire | Generer un wrapper d'appel | Produire une fonction `__ctrace_capture_<fonction>(...)` qui capture les entrees avant l'appel, appelle la vraie fonction, capture les sorties apres l'appel, puis retourne la valeur de retour. | `tools/generate_harness.py` |
-| T3 | A faire | Ajouter un compteur d'appels | Ajouter un compteur persistant dans le wrapper afin d'associer chaque appel a un identifiant stable, par exemple `call_000001`, `call_000002`, etc. | `tools/generate_harness.py` |
-| T4 | A faire | Stocker chaque appel dans un sous-dossier | Modifier les helpers de sauvegarde pour ecrire les captures dans `testcases/<fonction>_trace_001/call_<id>/` au lieu d'ecraser un seul cas. | `tools/generate_harness.py` |
-| T5 | A faire | Generer un `manifest.json` de trace | Enregistrer la liste des appels captures, leur ordre et les metadonnees utiles afin que le replay puisse rejouer la sequence exacte. | `tools/generate_harness.py` |
-| T6 | A faire | Generer un replay sequentiel | Produire un replay capable de lire le manifest, restaurer les entrees de chaque appel, appeler la fonction cible et comparer les sorties attendues dans l'ordre. | `tools/generate_harness.py` |
-| T7 | A faire | Documenter le mode trace | Expliquer la difference entre capture unitaire, trace longue sequentielle et replay appel-par-appel independant. Preciser le role du wrapper. | `README.md` |
-| T8 | A faire | Ajouter des cibles Makefile dediees | Ajouter des commandes separees pour generer, compiler et tester le mode trace sans modifier `make test`. | `Makefile` |
-| T9 | A faire | Ajouter des tests de non-regression | Creer un scenario simple ou plusieurs appels successifs a une fonction sont captures puis rejoues dans le meme ordre. | `examples/`, `tools/test_reports.py`, tests harness |
-| T10 | A faire | Clarifier les etats persistants | Definir le comportement attendu lorsque la fonction utilise des globales ou des variables locales `static`: replay sequentiel depuis un etat initial connu, ou instrumentation requise pour rejouer les appels independamment. | `README.md`, `tools/analyze.py`, `tools/generate_harness.py` |
+| T1 | Fait | Ajouter un mode de generation `trace` | Permettre au generateur de produire un harness de trace longue en plus du mode actuel `single`, sans changer le fonctionnement existant. | `tools/generate_harness.py`, `Makefile` |
+| T2 | Fait | Generer un wrapper d'appel | Produire une fonction `__ctrace_capture_<fonction>(...)` qui capture les entrees avant l'appel, appelle la vraie fonction, capture les sorties apres l'appel, puis retourne la valeur de retour. | `tools/generate_harness.py` |
+| T3 | Fait | Ajouter un compteur d'appels | Ajouter un compteur persistant dans le wrapper afin d'associer chaque appel a un identifiant stable, par exemple `call_000001`, `call_000002`, etc. | `tools/generate_harness.py` |
+| T4 | Fait | Stocker chaque appel dans un sous-dossier | Modifier les helpers de sauvegarde pour ecrire les captures dans `testcases/<fonction>_trace_001/call_<id>/` au lieu d'ecraser un seul cas. | `tools/generate_harness.py` |
+| T5 | Fait | Generer un `manifest.json` de trace | Enregistrer la liste des appels captures, leur ordre et les metadonnees utiles afin que le replay puisse rejouer la sequence exacte. | `tools/generate_harness.py` |
+| T6 | Fait | Generer un replay sequentiel | Produire un replay capable de lire le manifest, restaurer les entrees de chaque appel, appeler la fonction cible et comparer les sorties attendues dans l'ordre. | `tools/generate_harness.py` |
+| T7 | Fait | Documenter le mode trace | Expliquer la difference entre capture unitaire, trace longue sequentielle et replay appel-par-appel independant. Preciser le role du wrapper. | `README.md` |
+| T8 | Fait | Ajouter des cibles Makefile dediees | Ajouter des commandes separees pour generer, compiler et tester le mode trace sans modifier `make test`. | `Makefile` |
+| T9 | Fait | Ajouter des tests de non-regression | Creer un scenario simple ou plusieurs appels successifs a une fonction sont captures puis rejoues dans le meme ordre. | `examples/`, `tools/test_reports.py`, tests harness |
+| T10 | Fait | Clarifier les etats persistants | Definir le comportement attendu lorsque la fonction utilise des globales ou des variables locales `static`: replay sequentiel depuis un etat initial connu, ou instrumentation requise pour rejouer les appels independamment. | `README.md`, `tools/analyze.py`, `tools/generate_harness.py` |
 
 Principe du wrapper :
 

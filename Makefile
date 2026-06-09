@@ -9,8 +9,12 @@ REPORT=$(OUT)/$(FUNC)_report.json
 ANNOTATIONS=$(OUT)/$(FUNC)_annotations.required.json
 HARNESS_CAPTURE=$(OUT)/harness_$(FUNC)_capture.c
 HARNESS_REPLAY=$(OUT)/harness_$(FUNC)_replay.c
+TRACE_CAPTURE=$(OUT)/trace_$(FUNC)_capture.c
+TRACE_REPLAY=$(OUT)/trace_$(FUNC)_replay.c
 CAPTURE_BIN=$(OUT)/capture_$(FUNC)
 REPLAY_BIN=$(OUT)/replay_$(FUNC)
+TRACE_CAPTURE_BIN=$(OUT)/trace_capture_$(FUNC)
+TRACE_REPLAY_BIN=$(OUT)/trace_replay_$(FUNC)
 SAMPLE_BIN=$(OUT)/sample_main
 RW_SRC?=examples/rw_cases.c
 RW_HDR?=examples/rw_cases.h
@@ -25,7 +29,7 @@ RW_FUNCS+=rw_local_struct_temp rw_local_struct_output \
 	rw_local_address_escape_call rw_local_address_escape_global rw_local_address_escape_return \
 	rw_local_static_state
 
-.PHONY: all analyze generate capture replay test clean show-report show-warnings sample-run test-rw-cases test-reports
+.PHONY: all analyze generate capture replay test trace-generate trace-capture-build trace-replay-build trace-capture trace-replay trace-test clean show-report show-warnings sample-run test-rw-cases test-reports test-trace
 
 all: test
 
@@ -34,6 +38,9 @@ analyze:
 
 generate: analyze
 	$(PYTHON) tools/generate_harness.py $(REPORT) $(OUT)
+
+trace-generate: analyze
+	$(PYTHON) tools/generate_harness.py $(REPORT) $(OUT) --mode trace
 
 capture_build: generate $(HARNESS_CAPTURE) $(SRC) $(HDR)
 	$(CC) $(CFLAGS) -o $(CAPTURE_BIN) $(HARNESS_CAPTURE) $(SRC)
@@ -48,6 +55,20 @@ replay: replay_build
 	./$(REPLAY_BIN)
 
 test: capture replay
+
+trace-capture-build: trace-generate $(TRACE_CAPTURE) $(SRC) $(HDR)
+	$(CC) $(CFLAGS) -o $(TRACE_CAPTURE_BIN) $(TRACE_CAPTURE) $(SRC)
+
+trace-replay-build: trace-generate $(TRACE_REPLAY) $(SRC) $(HDR)
+	$(CC) $(CFLAGS) -o $(TRACE_REPLAY_BIN) $(TRACE_REPLAY) $(SRC)
+
+trace-capture: trace-capture-build
+	./$(TRACE_CAPTURE_BIN)
+
+trace-replay: trace-replay-build
+	./$(TRACE_REPLAY_BIN)
+
+trace-test: trace-capture trace-replay
 
 sample-run:
 	$(CC) $(CFLAGS) -o $(SAMPLE_BIN) examples/sample_main.c examples/sample.c
@@ -76,5 +97,8 @@ test-rw-cases:
 test-reports:
 	$(PYTHON) tools/test_reports.py
 
+test-trace:
+	$(PYTHON) tools/test_trace.py
+
 clean:
-	rm -rf generated/* testcases/*_case_001 testcases/case_001
+	rm -rf generated/* testcases/*_case_001 testcases/*_trace_001 testcases/case_001

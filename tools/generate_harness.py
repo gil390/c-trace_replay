@@ -4,14 +4,20 @@ import re
 import sys
 from pathlib import Path
 
-if len(sys.argv) != 3:
-    print('usage: generate_harness.py <report.json> <outdir>', file=sys.stderr)
+if len(sys.argv) not in {3, 5}:
+    print('usage: generate_harness.py <report.json> <outdir> [--mode single|trace]', file=sys.stderr)
     sys.exit(2)
 
 report_path = Path(sys.argv[1])
 report = json.loads(report_path.read_text())
 outdir = Path(sys.argv[2])
 outdir.mkdir(parents=True, exist_ok=True)
+mode = 'single'
+if len(sys.argv) == 5:
+    if sys.argv[3] != '--mode' or sys.argv[4] not in {'single', 'trace'}:
+        print('usage: generate_harness.py <report.json> <outdir> [--mode single|trace]', file=sys.stderr)
+        sys.exit(2)
+    mode = sys.argv[4]
 
 func = report['function']
 case_path = Path('testcases') / f'{func}.case.json'
@@ -244,6 +250,309 @@ def compare_line(symbol):
     }}'''
 
 
+def trace_extent_from_access(name):
+    accesses = report.get('access_sets', {}).get('read_set', []) + report.get('access_sets', {}).get('write_set', [])
+    for access in accesses:
+        if root_symbol(access['symbol']) != name:
+            continue
+        rng = access.get('range')
+        match = re.match(r'0\.\.([A-Za-z_]\w*)-1$', str(rng))
+        if match:
+            return match.group(1)
+    return None
+
+
+def trace_binding_for_param(param):
+    name = param['name']
+    typ = param.get('type', 'int')
+    if '*' not in typ:
+        return {'expr': f'&{name}', 'size': f'sizeof({name})'}
+    extent = trace_extent_from_access(name)
+    if extent:
+        return {'expr': name, 'size': f'({extent}) * sizeof(*{name})'}
+    return {'expr': name, 'size': f'sizeof(*{name})'}
+
+
+def trace_bindings():
+    result = {}
+    for param in report.get('parameters', []):
+        result[param['name']] = trace_binding_for_param(param)
+    for access in report.get('access_sets', {}).get('read_set', []) + report.get('access_sets', {}).get('write_set', []):
+        root = root_symbol(access['symbol'])
+        if root.startswith('g_') and root not in result:
+            result[root] = {'expr': f'&{root}', 'size': f'sizeof({root})'}
+    return result
+
+
+def trace_unique_symbols(accesses, trace_binding_map):
+    seen = set()
+    result = []
+    for access in accesses:
+        symbol = access['symbol']
+        if is_non_observable_local(symbol):
+            continue
+        root = root_symbol(symbol)
+        dedupe_key = root if root in trace_binding_map else symbol
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        result.append(symbol)
+    return result
+
+
+def trace_binding_for(symbol, trace_binding_map):
+    root = root_symbol(symbol)
+    return trace_binding_map.get(symbol) or trace_binding_map.get(root)
+
+
+def trace_binding_id(symbol, trace_binding_map):
+    root = root_symbol(symbol)
+    return safe_name(root if root in trace_binding_map else symbol)
+
+
+def trace_save_line(symbol, phase, trace_binding_map):
+    binding = trace_binding_for(symbol, trace_binding_map)
+    if not binding:
+        add_required(symbol, 'no trace binding inferred for symbol', {
+            'expr': 'TODO',
+            'size_expr': 'TODO',
+        })
+        return f'    /* TODO: trace save {c_string(symbol)} {phase}: no binding inferred. */'
+    ident = trace_binding_id(symbol, trace_binding_map)
+    return (
+        f'    snprintf(path, sizeof(path), "%s/{ident}_{phase}.bin", call_dir);\n'
+        f'    save_bin(path, {binding["expr"]}, {binding["size"]});'
+    )
+
+
+def trace_load_line(symbol, phase):
+    binding = require_binding(symbol)
+    if not binding:
+        return f'    /* TODO: trace load {c_string(symbol)} {phase}: no binding inferred. */'
+    ident = binding_id(symbol)
+    return (
+        f'        snprintf(path, sizeof(path), "%s/{ident}_{phase}.bin", call_dir);\n'
+        f'        if (load_bin(path, {binding["expr"]}, {binding["size"]}) != 0) {{ printf("TRACE REPLAY FAIL: cannot load {ident}_{phase} for call %zu\\n", call_id); return 1; }}'
+    )
+
+
+def trace_expected_decl(symbol):
+    binding = require_binding(symbol)
+    if not binding:
+        return f'        /* TODO: expected storage for {c_string(symbol)}: no binding inferred. */'
+    ident = binding_id(symbol)
+    return f'        uint8_t expected_{ident}[{binding["size"]}];'
+
+
+def trace_expected_load_line(symbol):
+    binding = require_binding(symbol)
+    if not binding:
+        return f'        /* TODO: trace load expected {c_string(symbol)}: no binding inferred. */'
+    ident = binding_id(symbol)
+    return (
+        f'        snprintf(path, sizeof(path), "%s/{ident}_expected.bin", call_dir);\n'
+        f'        if (load_bin(path, expected_{ident}, {binding["size"]}) != 0) {{ printf("TRACE REPLAY FAIL: cannot load {ident}_expected for call %zu\\n", call_id); return 1; }}'
+    )
+
+
+def trace_compare_line(symbol):
+    binding = require_binding(symbol)
+    if not binding:
+        return f'        /* TODO: trace compare {c_string(symbol)}: no binding inferred. */'
+    ident = binding_id(symbol)
+    return f'''
+        if (memcmp({binding["expr"]}, expected_{ident}, {binding["size"]}) != 0) {{
+            printf("TRACE REPLAY FAIL: {ident} mismatch for call %zu\\n", call_id);
+            ok = 0;
+        }}'''
+
+
+def wrapper_signature(wrapper_name):
+    params = report.get('parameters', [])
+    if not params:
+        return f'{return_type} {wrapper_name}(void)'
+    return f'{return_type} {wrapper_name}(' + ', '.join(f'{p["type"]} {p["name"]}' for p in params) + ')'
+
+
+def generate_trace_harness():
+    trace_dir = f'testcases/{func}_trace_001'
+    wrapper_name = f'__ctrace_capture_{func}'
+    param_call_args = ', '.join(p['name'] for p in report.get('parameters', []))
+    capture_call_args = param_call_args
+    if not capture_call_args:
+        capture_call_args = ''
+    trace_binding_map = trace_bindings()
+    trace_before_symbols = trace_unique_symbols(report.get('inferred_captures', {}).get('before', []), trace_binding_map)
+    for extra in generated_case.get('extra_before', []):
+        if extra not in trace_before_symbols:
+            trace_before_symbols.append(extra)
+    trace_after_symbols = trace_unique_symbols(report.get('access_sets', {}).get('write_set', []), trace_binding_map)
+    trace_before_saves = '\n'.join(trace_save_line(symbol, 'before', trace_binding_map) for symbol in trace_before_symbols)
+    trace_after_saves = '\n'.join(trace_save_line(symbol, 'expected', trace_binding_map) for symbol in trace_after_symbols)
+    standalone_decls = '\n'.join(declaration(var) for var in generated_case.get('variables', []))
+    standalone_args = ', '.join(generated_case.get('arguments') or [p['name'] for p in report.get('parameters', [])])
+    replay_before_loads = '\n'.join(trace_load_line(symbol, 'before') for symbol in before_symbols)
+    replay_expected_decls = '\n'.join(trace_expected_decl(symbol) for symbol in after_symbols)
+    replay_expected_loads = '\n'.join(trace_expected_load_line(symbol) for symbol in after_symbols)
+    replay_comparisons = '\n'.join(trace_compare_line(symbol) for symbol in after_symbols)
+    trace_return_save = '' if is_void else '    snprintf(path, sizeof(path), "%s/return_expected.bin", call_dir);\n    save_bin(path, &ret, sizeof(ret));'
+    trace_return_decl = '' if is_void else f'        {return_type} expected_ret;'
+    trace_return_load = '' if is_void else '        snprintf(path, sizeof(path), "%s/return_expected.bin", call_dir);\n        if (load_bin(path, &expected_ret, sizeof(expected_ret)) != 0) { printf("TRACE REPLAY FAIL: cannot load return_expected for call %zu\\n", call_id); return 1; }'
+    trace_return_compare = '' if is_void else '''
+        if (ret != expected_ret) {
+            printf("TRACE REPLAY FAIL: return mismatch for call %zu\\n", call_id);
+            ok = 0;
+        }'''
+    wrapper_call = (
+        f'    {func}({param_call_args});'
+        if is_void else
+        f'    {return_type} ret = {func}({param_call_args});'
+    )
+    wrapper_return = '' if is_void else '    return ret;'
+    replay_call_stmt = (
+        f'        {func}({call_args});'
+        if is_void else
+        f'        {return_type} ret = {func}({call_args});'
+    )
+
+    trace_common = common + f'''
+#define CTRACE_TRACE_DIR "{trace_dir}"
+
+static size_t __attribute__((unused)) __ctrace_call_count = 0;
+static int __attribute__((unused)) __ctrace_manifest_registered = 0;
+
+static void __attribute__((unused)) make_dir(const char *path)
+{{
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "mkdir -p %s", path);
+    system(cmd);
+}}
+
+static void __attribute__((unused)) call_dir_path(char *buf, size_t size, size_t call_id)
+{{
+    snprintf(buf, size, "%s/call_%06zu", CTRACE_TRACE_DIR, call_id);
+}}
+
+static size_t __attribute__((unused)) __ctrace_next_call_id(void)
+{{
+    __ctrace_call_count++;
+    return __ctrace_call_count;
+}}
+
+static void __attribute__((unused)) __ctrace_write_manifest(void)
+{{
+    char path[4096];
+    snprintf(path, sizeof(path), "%s/manifest.json", CTRACE_TRACE_DIR);
+    FILE *f = fopen(path, "w");
+    if (!f) return;
+    fprintf(f, "{{\\n");
+    fprintf(f, "  \\"function\\": \\"{func}\\",\\n");
+    fprintf(f, "  \\"mode\\": \\"trace\\",\\n");
+    fprintf(f, "  \\"call_count\\": %zu,\\n", __ctrace_call_count);
+    fprintf(f, "  \\"calls\\": [\\n");
+    for (size_t i = 1; i <= __ctrace_call_count; i++) {{
+        fprintf(f, "    {{\\"id\\": %zu, \\"dir\\": \\"call_%06zu\\"}}%s\\n",
+                i, i, i == __ctrace_call_count ? "" : ",");
+    }}
+    fprintf(f, "  ]\\n");
+    fprintf(f, "}}\\n");
+    fclose(f);
+}}
+
+static size_t __attribute__((unused)) __ctrace_manifest_call_count(void)
+{{
+    char path[4096];
+    char text[4096];
+    snprintf(path, sizeof(path), "%s/manifest.json", CTRACE_TRACE_DIR);
+    FILE *f = fopen(path, "r");
+    if (!f) return 0;
+    size_t n = fread(text, 1, sizeof(text) - 1, f);
+    fclose(f);
+    text[n] = '\\0';
+    char *p = strstr(text, "\\"call_count\\"");
+    if (!p) return 0;
+    p = strchr(p, ':');
+    if (!p) return 0;
+    return (size_t)strtoull(p + 1, NULL, 10);
+}}
+'''
+
+    capture = trace_common + f'''
+{wrapper_signature(wrapper_name)}
+{{
+    char call_dir[1024];
+    char path[4096];
+    size_t call_id = __ctrace_next_call_id();
+    make_dir(CTRACE_TRACE_DIR);
+    if (!__ctrace_manifest_registered) {{
+        atexit(__ctrace_write_manifest);
+        __ctrace_manifest_registered = 1;
+    }}
+    call_dir_path(call_dir, sizeof(call_dir), call_id);
+    make_dir(call_dir);
+
+{trace_before_saves}
+
+{wrapper_call}
+
+{trace_after_saves}
+{trace_return_save}
+
+    printf("TRACE CAPTURE: call_%06zu written\\n", call_id);
+{wrapper_return}
+}}
+
+int main(void)
+{{
+{standalone_decls}
+
+    for (size_t i = 0; i < CTRACE_DEFAULT_TRACE_CALLS; i++) {{
+        {'        ' if standalone_args else ''}{wrapper_name}({standalone_args});
+    }}
+
+    printf("TRACE CAPTURE OK: %zu calls written in %s\\n", __ctrace_call_count, CTRACE_TRACE_DIR);
+    return 0;
+}}
+'''
+
+    replay = trace_common + f'''
+int main(void)
+{{
+    size_t call_count = __ctrace_manifest_call_count();
+    if (call_count == 0) {{
+        printf("TRACE REPLAY FAIL: empty or missing manifest in %s\\n", CTRACE_TRACE_DIR);
+        return 1;
+    }}
+
+    int ok = 1;
+    for (size_t call_id = 1; call_id <= call_count; call_id++) {{
+        char call_dir[1024];
+        char path[4096];
+        call_dir_path(call_dir, sizeof(call_dir), call_id);
+
+{standalone_decls}
+{trace_return_decl}
+
+{replay_before_loads}
+
+{replay_expected_decls}
+{replay_expected_loads}
+{trace_return_load}
+
+{replay_call_stmt}
+{trace_return_compare}
+{replay_comparisons}
+    }}
+
+    if (ok) printf("TRACE REPLAY PASS: %zu calls\\n", call_count);
+    return ok ? 0 : 1;
+}}
+'''
+
+    (outdir / f'trace_{func}_capture.c').write_text(capture)
+    (outdir / f'trace_{func}_replay.c').write_text(replay)
+
+
 def warnings_comment():
     notes = []
     for warning in report.get('warnings', []):
@@ -277,6 +586,10 @@ common = warnings_comment() + f'''
 
 #ifndef CTRACE_DEFAULT_LEN
 #define CTRACE_DEFAULT_LEN 4
+#endif
+
+#ifndef CTRACE_DEFAULT_TRACE_CALLS
+#define CTRACE_DEFAULT_TRACE_CALLS 3
 #endif
 
 static int __attribute__((unused)) save_bin(const char *path, const void *data, size_t size)
@@ -381,6 +694,22 @@ int main(void)
     return ok ? 0 : 1;
 }}
 '''
+
+if mode == 'trace':
+    generate_trace_harness()
+    annotations_path = outdir / f'{func}_annotations.required.json'
+    if required_annotations:
+        annotations_path.write_text(json.dumps({
+            'annotation_required': required_annotations,
+            'warnings': report.get('warnings', []),
+        }, indent=2))
+    elif annotations_path.exists():
+        annotations_path.unlink()
+    if required_annotations:
+        print(f'TRACE GENERATE OK: inferred trace harness with {len(required_annotations)} annotations required')
+    else:
+        print('TRACE GENERATE OK')
+    sys.exit(0)
 
 (outdir / f'harness_{func}_capture.c').write_text(capture)
 (outdir / f'harness_{func}_replay.c').write_text(replay)
