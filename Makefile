@@ -54,7 +54,11 @@ show-report: analyze
 	$(PYTHON) -m json.tool $(REPORT)
 
 show-warnings: analyze
-	$(PYTHON) -m json.tool $(ANNOTATIONS)
+	@if [ -f $(ANNOTATIONS) ]; then \
+		$(PYTHON) -m json.tool $(ANNOTATIONS); \
+	else \
+		echo "No required annotations for $(FUNC)"; \
+	fi
 
 test-rw-cases:
 	@mkdir -p $(RW_OUT)

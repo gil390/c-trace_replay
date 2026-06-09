@@ -96,10 +96,14 @@ def finalize_report(report):
 
 def write_report(report):
     (outdir / f'{func_name}_report.json').write_text(json.dumps(report, indent=2))
-    (outdir / f'{func_name}_annotations.required.json').write_text(json.dumps({
-        'annotation_required': report['annotation_required'],
-        'warnings': report['warnings'],
-    }, indent=2))
+    annotations_path = outdir / f'{func_name}_annotations.required.json'
+    if report['annotation_required']:
+        annotations_path.write_text(json.dumps({
+            'annotation_required': report['annotation_required'],
+            'warnings': report['warnings'],
+        }, indent=2))
+    elif annotations_path.exists():
+        annotations_path.unlink()
     print('ANALYZE OK')
     print(f"backend: {report.get('backend', 'unknown')}")
     print(f"warnings: {len(report['warnings'])}, annotations required: {len(report['annotation_required'])}")

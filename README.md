@@ -232,8 +232,10 @@ Exemple :
 }
 ```
 
-Une entrée `annotation_required` est bloquante. Elle signifie que l'analyseur ne
-peut pas déterminer seul une information nécessaire à une capture fiable.
+Une entrée `annotation_required` signifie que l'analyseur ne peut pas déterminer
+seul une information nécessaire à une capture fiable. La génération du harness
+continue lorsque c'est possible, mais le cas n'est pas considéré comme
+automatiquement complet tant que cette information n'est pas fournie.
 
 Exemple :
 
@@ -306,14 +308,15 @@ sont disponibles. Il produit un rapport JSON contenant notamment :
 * les captures déduites avant et après appel ;
 * les ambiguïtés éventuelles dans `annotation_required`.
 
-Le générateur de harness s'appuie ensuite sur deux sources :
+Le générateur de harness s'appuie d'abord sur le rapport d'analyse
+`generated/<fonction>_report.json`. Lorsqu'aucun fichier
+`testcases/<fonction>.case.json` n'existe, il construit un cas par défaut à
+partir des paramètres, des accès détectés et des captures inférées.
 
-* le rapport d'analyse `generated/<fonction>_report.json` ;
-* un fichier de description de cas `testcases/<fonction>.case.json`.
-
-Le fichier `.case.json` décrit les variables à instancier, les arguments à
-passer à la fonction et les bindings entre les symboles détectés par l'analyseur
-et les expressions C à sauvegarder ou comparer.
+Le fichier `.case.json` reste optionnel. Il sert à remplacer ou compléter les
+variables à instancier, les arguments à passer à la fonction et les bindings
+entre les symboles détectés par l'analyseur et les expressions C à sauvegarder
+ou comparer lorsque l'inférence automatique ne suffit pas.
 
 Le replay compare actuellement :
 
@@ -384,7 +387,8 @@ make clean
 Les principaux fichiers générés sont :
 
 * `generated/<fonction>_report.json` ;
-* `generated/<fonction>_annotations.required.json` ;
+* `generated/<fonction>_annotations.required.json`, seulement si des
+  informations complémentaires sont nécessaires ;
 * `generated/harness_<fonction>_capture.c` ;
 * `generated/harness_<fonction>_replay.c` ;
 * `generated/capture_<fonction>` ;
