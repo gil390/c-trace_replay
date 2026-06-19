@@ -95,6 +95,23 @@ Les informations complémentaires ne doivent être demandées que lorsqu'une amb
 make show-report FUNC=<fonction>
 ```
 
+### Cartographie des fonctions et des appels
+
+```bash
+make map-calls MAP_SRC_DIR=<repertoire_sources> CALL_MAP=generated/call_map.json
+```
+
+ou directement :
+
+```bash
+python3 tools/map_call.py <repertoire_sources> <sortie.json>
+```
+
+Le JSON contient les fonctions découvertes, leurs appels, les arêtes du graphe
+et les diagnostics Clang éventuels. Si un `compile_commands.json` est présent
+dans le répertoire analysé, il est utilisé automatiquement. Sinon, l'outil
+utilise `-std=c11` et ajoute le répertoire source aux chemins d'inclusion.
+
 ### Affichage des ambiguïtés détectées
 
 ```bash
