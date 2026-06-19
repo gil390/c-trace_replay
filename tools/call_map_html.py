@@ -325,7 +325,10 @@ def render_html(data):
         <button id="zoomOut" class="icon-btn" title="Zoom arriere">-</button>
         <button id="focusNeighborhood" class="icon-btn" title="Regrouper le voisinage">N</button>
         <button id="resetView" class="icon-btn" title="Recentrer">R</button>
+        <button id="exportLayout" class="icon-btn" title="Exporter les positions">E</button>
+        <button id="importLayout" class="icon-btn" title="Importer les positions">I</button>
       </div>
+      <input id="layoutFile" type="file" accept="application/json,.json" hidden>
       <canvas id="graph"></canvas>
     </main>
     <aside class="right">
@@ -360,6 +363,7 @@ def render_html(data):
   const fnCountEl = document.getElementById('fnCount');
   const edgeCountEl = document.getElementById('edgeCount');
   const diagCountEl = document.getElementById('diagCount');
+  const layoutFileEl = document.getElementById('layoutFile');
   let selectedId = functions[0]?.id || null;
   let view = {{ x: 0, y: 0, scale: 1 }};
   let dragging = null;
@@ -701,6 +705,78 @@ def render_html(data):
     draw();
   }}
 
+  function exportLayout() {{
+    const layout = {{
+      format: 'ctrace-call-map-layout',
+      version: 1,
+      source_dir: data.source_dir || null,
+      selected_id: selectedId,
+      view: {{ x: view.x, y: view.y, scale: view.scale }},
+      nodes: state.nodes.map(node => ({{
+        id: node.id,
+        name: node.fn.name,
+        x: Math.round(node.x * 1000) / 1000,
+        y: Math.round(node.y * 1000) / 1000,
+      }})),
+    }};
+    const blob = new Blob([JSON.stringify(layout, null, 2)], {{ type: 'application/json' }});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'call_map_layout.json';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }}
+
+  function importLayoutFile(file) {{
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {{
+      try {{
+        const layout = JSON.parse(String(reader.result || ''));
+        applyLayout(layout);
+      }} catch (error) {{
+        window.alert('Layout JSON invalide: ' + error.message);
+      }}
+    }};
+    reader.readAsText(file, 'utf-8');
+  }}
+
+  function applyLayout(layout) {{
+    if (!layout || !Array.isArray(layout.nodes)) {{
+      window.alert('Layout invalide: champ nodes manquant');
+      return;
+    }}
+    let applied = 0;
+    for (const item of layout.nodes) {{
+      const node = state.nodeById.get(item.id);
+      if (!node || !Number.isFinite(item.x) || !Number.isFinite(item.y)) continue;
+      node.x = item.x;
+      node.y = item.y;
+      node.vx = 0;
+      node.vy = 0;
+      applied++;
+    }}
+    if (layout.selected_id && byId.has(layout.selected_id)) {{
+      selectedId = layout.selected_id;
+      renderList(visibleFunctions());
+      renderDetails();
+    }}
+    if (layout.view && Number.isFinite(layout.view.x) && Number.isFinite(layout.view.y) && Number.isFinite(layout.view.scale)) {{
+      view = {{
+        x: layout.view.x,
+        y: layout.view.y,
+        scale: Math.max(.08, Math.min(3, layout.view.scale)),
+      }};
+    }} else if (selectedId) {{
+      centerOnNode(selectedId);
+    }}
+    draw();
+    if (!applied) window.alert('Aucune position applicable dans ce layout');
+  }}
+
   function uniqueEdges(items, key) {{
     const seen = new Set();
     return items.filter(edge => {{
@@ -800,6 +876,12 @@ def render_html(data):
   document.getElementById('zoomOut').addEventListener('click', () => {{ view.scale = Math.max(.08, view.scale / 1.2); draw(); }});
   document.getElementById('focusNeighborhood').addEventListener('click', arrangeAroundSelected);
   document.getElementById('resetView').addEventListener('click', resetView);
+  document.getElementById('exportLayout').addEventListener('click', exportLayout);
+  document.getElementById('importLayout').addEventListener('click', () => layoutFileEl.click());
+  layoutFileEl.addEventListener('change', () => {{
+    importLayoutFile(layoutFileEl.files && layoutFileEl.files[0]);
+    layoutFileEl.value = '';
+  }});
   window.addEventListener('resize', resize);
 
   rebuildGraph();
