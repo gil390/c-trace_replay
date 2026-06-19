@@ -119,6 +119,11 @@ et les diagnostics Clang éventuels. Si un `compile_commands.json` est présent
 dans le répertoire analysé, il est utilisé automatiquement. Sinon, l'outil
 utilise `-std=c11` et ajoute le répertoire source aux chemins d'inclusion.
 
+Dans la vue HTML, le bouton `G` crée une boîte logique autour de la fonction
+sélectionnée et de ses voisins directs visibles. Le titre et le commentaire de
+la boîte sont éditables dans le panneau de droite. Les boutons `E` et `I`
+permettent d'exporter et réimporter les positions ainsi que ces boîtes.
+
 ### Affichage des ambiguïtés détectées
 
 ```bash

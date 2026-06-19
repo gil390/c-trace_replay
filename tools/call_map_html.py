@@ -225,6 +225,43 @@ def render_html(data):
       font-size: 16px;
       line-height: 1;
     }}
+    .field {{
+      display: grid;
+      gap: 5px;
+      margin-top: 10px;
+    }}
+    .field label {{
+      color: var(--muted);
+      font-size: 12px;
+    }}
+    .field input, .field textarea {{
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      font: inherit;
+      color: var(--text);
+      background: #fff;
+    }}
+    .field textarea {{
+      min-height: 76px;
+      resize: vertical;
+    }}
+    .text-btn {{
+      min-height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel-2);
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+      padding: 5px 9px;
+    }}
+    .text-btn.danger {{
+      color: var(--danger);
+      background: #fff5f5;
+      border-color: #f3b8b8;
+    }}
     .details {{
       padding: 14px;
     }}
@@ -324,6 +361,7 @@ def render_html(data):
         <button id="zoomIn" class="icon-btn" title="Zoom avant">+</button>
         <button id="zoomOut" class="icon-btn" title="Zoom arriere">-</button>
         <button id="focusNeighborhood" class="icon-btn" title="Regrouper le voisinage">N</button>
+        <button id="createGroup" class="icon-btn" title="Creer une boite logique">G</button>
         <button id="resetView" class="icon-btn" title="Recentrer">R</button>
         <button id="exportLayout" class="icon-btn" title="Exporter les positions">E</button>
         <button id="importLayout" class="icon-btn" title="Importer les positions">I</button>
@@ -365,6 +403,7 @@ def render_html(data):
   const diagCountEl = document.getElementById('diagCount');
   const layoutFileEl = document.getElementById('layoutFile');
   let selectedId = functions[0]?.id || null;
+  let selectedGroupId = null;
   let view = {{ x: 0, y: 0, scale: 1 }};
   let dragging = null;
   let panning = null;
@@ -373,6 +412,8 @@ def render_html(data):
     nodes: [],
     nodeById: new Map(),
     visibleEdges: [],
+    groups: [],
+    groupSeq: 1,
   }};
 
   function fileLine(loc) {{
@@ -485,6 +526,11 @@ def render_html(data):
   }}
 
   function renderDetails() {{
+    const group = state.groups.find(item => item.id === selectedGroupId);
+    if (group) {{
+      renderGroupDetails(group);
+      return;
+    }}
     const fn = byId.get(selectedId);
     if (!fn) {{
       detailsEl.innerHTML = '<div class="empty">Aucune fonction sélectionnée</div>';
@@ -508,6 +554,46 @@ def render_html(data):
         ${{rowsForEdges(inc, false)}}
       </div>
     `;
+  }}
+
+  function renderGroupDetails(group) {{
+    const visibleCount = group.nodeIds.filter(id => state.nodeById.has(id)).length;
+    detailsEl.innerHTML = `
+      <h2>${{escapeHtml(group.title || 'Groupe logique')}}</h2>
+      <div class="signature">${{visibleCount}} fonction(s) visibles · ${{group.nodeIds.length}} fonction(s) dans le groupe</div>
+      <div class="section">
+        <h3>Edition</h3>
+        <div class="field">
+          <label for="groupTitle">Titre</label>
+          <input id="groupTitle" value="${{escapeHtml(group.title || '')}}">
+        </div>
+        <div class="field">
+          <label for="groupComment">Commentaire</label>
+          <textarea id="groupComment">${{escapeHtml(group.comment || '')}}</textarea>
+        </div>
+        <div class="field">
+          <button id="deleteGroup" class="text-btn danger">Supprimer la boite</button>
+        </div>
+      </div>
+      <div class="section">
+        <h3>Fonctions</h3>
+        ${{group.nodeIds.map(id => `<div class="row"><div class="row-name">${{escapeHtml(byId.get(id)?.name || id)}}</div><div class="row-meta">${{escapeHtml(id)}}</div></div>`).join('') || '<div class="empty">Aucune</div>'}}
+      </div>
+    `;
+    document.getElementById('groupTitle').addEventListener('input', event => {{
+      group.title = event.target.value;
+      draw();
+    }});
+    document.getElementById('groupComment').addEventListener('input', event => {{
+      group.comment = event.target.value;
+      draw();
+    }});
+    document.getElementById('deleteGroup').addEventListener('click', () => {{
+      state.groups = state.groups.filter(item => item.id !== group.id);
+      selectedGroupId = null;
+      renderDetails();
+      draw();
+    }});
   }}
 
   function rowsForEdges(items, outgoingRows) {{
@@ -536,6 +622,7 @@ def render_html(data):
 
   function selectNode(id, options = {{}}) {{
     selectedId = id;
+    selectedGroupId = null;
     renderList(visibleFunctions());
     renderDetails();
     if (options.center) centerOnNode(id, Math.max(view.scale, .85));
@@ -566,6 +653,7 @@ def render_html(data):
     ctx.translate(view.x, view.y);
     ctx.scale(view.scale, view.scale);
 
+    drawGroups();
     for (const edge of state.visibleEdges) {{
       const a = state.nodeById.get(edge.from);
       const b = edge.to ? state.nodeById.get(edge.to) : null;
@@ -575,6 +663,75 @@ def render_html(data):
     }}
     for (const node of state.nodes) drawNode(node);
     ctx.restore();
+  }}
+
+  function drawGroups() {{
+    for (const group of state.groups) {{
+      const bounds = groupBounds(group);
+      if (!bounds) continue;
+      group._bounds = bounds;
+      const selected = group.id === selectedGroupId;
+      ctx.fillStyle = selected ? 'rgba(15, 118, 110, .16)' : 'rgba(20, 58, 90, .08)';
+      ctx.strokeStyle = selected ? '#0f766e' : '#7d8fa2';
+      ctx.lineWidth = selected ? 2.5 : 1.4;
+      ctx.setLineDash(selected ? [] : [8, 6]);
+      roundRect(bounds.x, bounds.y, bounds.w, bounds.h, 10);
+      ctx.fill();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#143a5a';
+      ctx.font = '700 14px system-ui, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(group.title || 'Groupe logique', bounds.x + 14, bounds.y + 12);
+      if (group.comment) {{
+        ctx.fillStyle = '#657384';
+        ctx.font = '12px system-ui, sans-serif';
+        drawWrappedText(group.comment, bounds.x + 14, bounds.y + 34, Math.max(80, bounds.w - 28), 15, 3);
+      }}
+    }}
+  }}
+
+  function groupBounds(group) {{
+    const nodes = group.nodeIds.map(id => state.nodeById.get(id)).filter(Boolean);
+    if (!nodes.length) return null;
+    const minX = Math.min(...nodes.map(node => node.x - node.r)) - 44;
+    const maxX = Math.max(...nodes.map(node => node.x + node.r)) + 44;
+    const minY = Math.min(...nodes.map(node => node.y - node.r)) - 72;
+    const maxY = Math.max(...nodes.map(node => node.y + node.r)) + 40;
+    return {{ x: minX, y: minY, w: maxX - minX, h: maxY - minY }};
+  }}
+
+  function roundRect(x, y, w, h, r) {{
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }}
+
+  function drawWrappedText(text, x, y, maxWidth, lineHeight, maxLines) {{
+    const words = String(text).split(/\\s+/).filter(Boolean);
+    let line = '';
+    let lines = 0;
+    for (const word of words) {{
+      const test = line ? line + ' ' + word : word;
+      if (ctx.measureText(test).width > maxWidth && line) {{
+        ctx.fillText(line, x, y + lines * lineHeight);
+        lines++;
+        line = word;
+        if (lines >= maxLines) return;
+      }} else {{
+        line = test;
+      }}
+    }}
+    if (line && lines < maxLines) ctx.fillText(line, x, y + lines * lineHeight);
   }}
 
   function drawEdge(a, b, edge) {{
@@ -705,6 +862,27 @@ def render_html(data):
     draw();
   }}
 
+  function createGroupFromSelected() {{
+    if (!selectedId || !state.nodeById.has(selectedId)) return;
+    const outIds = state.visibleEdges.filter(edge => edge.from === selectedId && edge.to && state.nodeById.has(edge.to)).map(edge => edge.to);
+    const inIds = state.visibleEdges.filter(edge => edge.to === selectedId && state.nodeById.has(edge.from)).map(edge => edge.from);
+    const nodeIds = [...new Set([selectedId, ...outIds, ...inIds])];
+    const fn = byId.get(selectedId);
+    const title = window.prompt('Titre de la boite', fn ? fn.name : 'Groupe logique');
+    if (title === null) return;
+    const comment = window.prompt('Commentaire', '') || '';
+    const group = {{
+      id: 'group_' + state.groupSeq++,
+      title: title.trim() || 'Groupe logique',
+      comment,
+      nodeIds,
+    }};
+    state.groups.push(group);
+    selectedGroupId = group.id;
+    renderDetails();
+    draw();
+  }}
+
   function exportLayout() {{
     const layout = {{
       format: 'ctrace-call-map-layout',
@@ -712,6 +890,12 @@ def render_html(data):
       source_dir: data.source_dir || null,
       selected_id: selectedId,
       view: {{ x: view.x, y: view.y, scale: view.scale }},
+      groups: state.groups.map(group => ({{
+        id: group.id,
+        title: group.title,
+        comment: group.comment,
+        nodeIds: group.nodeIds,
+      }})),
       nodes: state.nodes.map(node => ({{
         id: node.id,
         name: node.fn.name,
@@ -761,8 +945,20 @@ def render_html(data):
     }}
     if (layout.selected_id && byId.has(layout.selected_id)) {{
       selectedId = layout.selected_id;
+      selectedGroupId = null;
       renderList(visibleFunctions());
       renderDetails();
+    }}
+    if (Array.isArray(layout.groups)) {{
+      state.groups = layout.groups
+        .filter(group => group && Array.isArray(group.nodeIds))
+        .map((group, index) => ({{
+          id: String(group.id || 'group_' + (index + 1)),
+          title: String(group.title || 'Groupe logique'),
+          comment: String(group.comment || ''),
+          nodeIds: [...new Set(group.nodeIds.filter(id => byId.has(id)))],
+        }}));
+      state.groupSeq = state.groups.length + 1;
     }}
     if (layout.view && Number.isFinite(layout.view.x) && Number.isFinite(layout.view.y) && Number.isFinite(layout.view.scale)) {{
       view = {{
@@ -775,6 +971,18 @@ def render_html(data):
     }}
     draw();
     if (!applied) window.alert('Aucune position applicable dans ce layout');
+  }}
+
+  function groupAt(x, y) {{
+    const p = screenToWorld(x, y);
+    for (let i = state.groups.length - 1; i >= 0; i--) {{
+      const bounds = groupBounds(state.groups[i]);
+      if (!bounds) continue;
+      if (p.x >= bounds.x && p.x <= bounds.x + bounds.w && p.y >= bounds.y && p.y <= bounds.y + bounds.h) {{
+        return state.groups[i];
+      }}
+    }}
+    return null;
   }}
 
   function uniqueEdges(items, key) {{
@@ -831,11 +1039,16 @@ def render_html(data):
 
   canvas.addEventListener('pointerdown', event => {{
     const node = nodeAt(event.offsetX, event.offsetY);
+    const group = node ? null : groupAt(event.offsetX, event.offsetY);
     canvas.setPointerCapture(event.pointerId);
     canvas.classList.add('dragging');
     if (node) {{
       selectNode(node.id);
       dragging = {{ node, last: screenToWorld(event.offsetX, event.offsetY) }};
+    }} else if (group) {{
+      selectedGroupId = group.id;
+      renderDetails();
+      draw();
     }} else {{
       panning = {{ x: event.clientX, y: event.clientY, viewX: view.x, viewY: view.y }};
     }}
@@ -875,6 +1088,7 @@ def render_html(data):
   document.getElementById('zoomIn').addEventListener('click', () => {{ view.scale = Math.min(3, view.scale * 1.2); draw(); }});
   document.getElementById('zoomOut').addEventListener('click', () => {{ view.scale = Math.max(.08, view.scale / 1.2); draw(); }});
   document.getElementById('focusNeighborhood').addEventListener('click', arrangeAroundSelected);
+  document.getElementById('createGroup').addEventListener('click', createGroupFromSelected);
   document.getElementById('resetView').addEventListener('click', resetView);
   document.getElementById('exportLayout').addEventListener('click', exportLayout);
   document.getElementById('importLayout').addEventListener('click', () => layoutFileEl.click());
