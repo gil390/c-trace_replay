@@ -323,6 +323,7 @@ def render_html(data):
       <div class="toolbar">
         <button id="zoomIn" class="icon-btn" title="Zoom avant">+</button>
         <button id="zoomOut" class="icon-btn" title="Zoom arriere">-</button>
+        <button id="focusNeighborhood" class="icon-btn" title="Regrouper le voisinage">N</button>
         <button id="resetView" class="icon-btn" title="Recentrer">R</button>
       </div>
       <canvas id="graph"></canvas>
@@ -474,7 +475,7 @@ def render_html(data):
         <span class="badge">${{outgoing.get(fn.id)?.length || 0}}</span>
         <span class="fn-file">${{escapeHtml(fileLine(fn.location))}}</span>
       `;
-      button.addEventListener('click', () => selectNode(fn.id));
+      button.addEventListener('click', () => selectNode(fn.id, {{ center: true }}));
       listEl.appendChild(button);
     }}
   }}
@@ -522,13 +523,18 @@ def render_html(data):
     }}).join('');
   }}
 
-  function selectNode(id) {{
-    selectedId = id;
-    renderList(functions.filter(fn => {{
-      const term = searchEl.value.trim().toLowerCase();
+  function visibleFunctions() {{
+    const term = searchEl.value.trim().toLowerCase();
+    return functions.filter(fn => {{
       return !term || `${{fn.name}} ${{fn.id}} ${{fn.display_name || ''}}`.toLowerCase().includes(term);
-    }}));
+    }});
+  }}
+
+  function selectNode(id, options = {{}}) {{
+    selectedId = id;
+    renderList(visibleFunctions());
     renderDetails();
+    if (options.center) centerOnNode(id, Math.max(view.scale, .85));
     draw();
   }}
 
@@ -649,6 +655,80 @@ def render_html(data):
     return null;
   }}
 
+  function centerOnNode(id, targetScale = view.scale) {{
+    const node = state.nodeById.get(id);
+    if (!node) return;
+    const rect = canvas.getBoundingClientRect();
+    view.scale = Math.max(.08, Math.min(3, targetScale));
+    view.x = rect.width / 2 - node.x * view.scale;
+    view.y = rect.height / 2 - node.y * view.scale;
+  }}
+
+  function centerBoundsForNodes(ids, maxScale = 1.35) {{
+    const nodes = ids.map(id => state.nodeById.get(id)).filter(Boolean);
+    if (!nodes.length) return;
+    const rect = canvas.getBoundingClientRect();
+    const minX = Math.min(...nodes.map(node => node.x - node.r)) - 80;
+    const maxX = Math.max(...nodes.map(node => node.x + node.r)) + 80;
+    const minY = Math.min(...nodes.map(node => node.y - node.r)) - 80;
+    const maxY = Math.max(...nodes.map(node => node.y + node.r)) + 80;
+    const scale = Math.min(
+      rect.width / Math.max(1, maxX - minX),
+      rect.height / Math.max(1, maxY - minY),
+      maxScale,
+    );
+    view.scale = Math.max(.08, scale);
+    view.x = (rect.width - (minX + maxX) * view.scale) / 2;
+    view.y = (rect.height - (minY + maxY) * view.scale) / 2;
+  }}
+
+  function arrangeAroundSelected() {{
+    const selected = state.nodeById.get(selectedId);
+    if (!selected) return;
+    const outgoingProject = uniqueEdges(state.visibleEdges.filter(edge => edge.from === selectedId && edge.to && state.nodeById.has(edge.to)), 'to');
+    const incomingProject = uniqueEdges(state.visibleEdges.filter(edge => edge.to === selectedId && state.nodeById.has(edge.from)), 'from');
+    const centerX = selected.x;
+    const centerY = selected.y;
+    selected.x = centerX;
+    selected.y = centerY;
+    selected.vx = 0;
+    selected.vy = 0;
+
+    placeRing(outgoingProject.map(edge => edge.to), centerX, centerY, 210, -65, 65);
+    placeRing(incomingProject.map(edge => edge.from), centerX, centerY, 210, 115, 245);
+    const ids = [selectedId, ...outgoingProject.map(edge => edge.to), ...incomingProject.map(edge => edge.from)];
+    centerBoundsForNodes([...new Set(ids)], 1.45);
+    draw();
+  }}
+
+  function uniqueEdges(items, key) {{
+    const seen = new Set();
+    return items.filter(edge => {{
+      const value = edge[key];
+      if (!value || seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    }});
+  }}
+
+  function placeRing(ids, centerX, centerY, radius, startDeg, endDeg) {{
+    const uniqueIds = [...new Set(ids)];
+    if (!uniqueIds.length) return;
+    const spread = uniqueIds.length === 1 ? 0 : endDeg - startDeg;
+    const offset = uniqueIds.length === 1 ? (startDeg + endDeg) / 2 : startDeg;
+    uniqueIds.forEach((id, index) => {{
+      const node = state.nodeById.get(id);
+      if (!node) return;
+      const angleDeg = offset + (uniqueIds.length === 1 ? 0 : spread * index / (uniqueIds.length - 1));
+      const angle = angleDeg * Math.PI / 180;
+      const localRadius = radius + Math.floor(index / 10) * 90;
+      node.x = centerX + Math.cos(angle) * localRadius;
+      node.y = centerY + Math.sin(angle) * localRadius;
+      node.vx = 0;
+      node.vy = 0;
+    }});
+  }}
+
   function resetView() {{
     const rect = canvas.getBoundingClientRect();
     if (!state.nodes.length) {{
@@ -663,7 +743,7 @@ def render_html(data):
     const minY = Math.min(...ys) - 100;
     const maxY = Math.max(...ys) + 100;
     const scale = Math.min(rect.width / Math.max(1, maxX - minX), rect.height / Math.max(1, maxY - minY), 1.25);
-    view.scale = Math.max(.25, scale);
+    view.scale = Math.max(.08, scale);
     view.x = (rect.width - (minX + maxX) * view.scale) / 2;
     view.y = (rect.height - (minY + maxY) * view.scale) / 2;
     draw();
@@ -706,7 +786,7 @@ def render_html(data):
     event.preventDefault();
     const before = screenToWorld(event.offsetX, event.offsetY);
     const factor = event.deltaY < 0 ? 1.12 : 0.89;
-    view.scale = Math.max(.18, Math.min(3, view.scale * factor));
+    view.scale = Math.max(.08, Math.min(3, view.scale * factor));
     const after = worldToScreen(before.x, before.y);
     view.x += event.offsetX - after.x;
     view.y += event.offsetY - after.y;
@@ -717,7 +797,8 @@ def render_html(data):
   projectOnlyEl.addEventListener('change', rebuildGraph);
   showIndirectEl.addEventListener('change', rebuildGraph);
   document.getElementById('zoomIn').addEventListener('click', () => {{ view.scale = Math.min(3, view.scale * 1.2); draw(); }});
-  document.getElementById('zoomOut').addEventListener('click', () => {{ view.scale = Math.max(.18, view.scale / 1.2); draw(); }});
+  document.getElementById('zoomOut').addEventListener('click', () => {{ view.scale = Math.max(.08, view.scale / 1.2); draw(); }});
+  document.getElementById('focusNeighborhood').addEventListener('click', arrangeAroundSelected);
   document.getElementById('resetView').addEventListener('click', resetView);
   window.addEventListener('resize', resize);
 
