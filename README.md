@@ -101,10 +101,17 @@ make show-report FUNC=<fonction>
 make map-calls MAP_SRC_DIR=<repertoire_sources> CALL_MAP=generated/call_map.json
 ```
 
+Pour générer aussi une page HTML de visualisation :
+
+```bash
+make call-map-html MAP_SRC_DIR=<repertoire_sources> CALL_MAP=generated/call_map.json CALL_MAP_HTML=generated/call_map.html
+```
+
 ou directement :
 
 ```bash
 python3 tools/map_call.py <repertoire_sources> <sortie.json>
+python3 tools/call_map_html.py <sortie.json> <sortie.html>
 ```
 
 Le JSON contient les fonctions découvertes, leurs appels, les arêtes du graphe

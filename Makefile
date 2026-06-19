@@ -21,6 +21,7 @@ RW_HDR?=examples/rw_cases.h
 RW_OUT?=$(OUT)/rw_cases
 MAP_SRC_DIR?=examples
 CALL_MAP?=$(OUT)/call_map.json
+CALL_MAP_HTML?=$(OUT)/call_map.html
 RW_FUNCS=rw_array_read_write rw_array_compound rw_array_increment \
 	rw_pointer_read rw_pointer_write rw_pointer_inout \
 	rw_struct_field_read rw_struct_field_write rw_struct_field_inout rw_struct_array_read \
@@ -31,7 +32,7 @@ RW_FUNCS+=rw_local_struct_temp rw_local_struct_output \
 	rw_local_address_escape_call rw_local_address_escape_global rw_local_address_escape_return \
 	rw_local_static_state rw_module_global_vector_inout
 
-.PHONY: all analyze generate capture replay test trace-generate trace-capture-build trace-replay-build trace-capture trace-replay trace-test clean show-report show-warnings sample-run map-calls test-rw-cases test-reports test-trace
+.PHONY: all analyze generate capture replay test trace-generate trace-capture-build trace-replay-build trace-capture trace-replay trace-test clean show-report show-warnings sample-run map-calls call-map-html test-rw-cases test-reports test-trace
 
 all: test
 
@@ -88,6 +89,9 @@ show-warnings: analyze
 
 map-calls:
 	$(PYTHON) tools/map_call.py $(MAP_SRC_DIR) $(CALL_MAP)
+
+call-map-html: map-calls
+	$(PYTHON) tools/call_map_html.py $(CALL_MAP) $(CALL_MAP_HTML)
 
 test-rw-cases:
 	@mkdir -p $(RW_OUT)
