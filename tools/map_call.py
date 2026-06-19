@@ -24,7 +24,7 @@ def load_clang_candidates():
         return DEFAULT_CLANG_CANDIDATES
 
     try:
-        config = json.loads(CONFIG_PATH.read_text())
+        config = json.loads(CONFIG_PATH.read_text(encoding='utf-8'))
     except json.JSONDecodeError as exc:
         raise RuntimeError(f'invalid JSON in {CONFIG_PATH}: {exc.msg}') from exc
 
@@ -163,7 +163,7 @@ def load_compile_commands(path):
         raise RuntimeError(f'compile commands file not found: {db_path}')
 
     try:
-        entries = json.loads(db_path.read_text())
+        entries = json.loads(db_path.read_text(encoding='utf-8'))
     except json.JSONDecodeError as exc:
         raise RuntimeError(f'invalid JSON in {db_path}: {exc.msg}') from exc
 
@@ -425,7 +425,7 @@ def map_calls(source_dir, out_path, compile_commands, std, include_dirs):
         item['location']['line'] if item.get('location') else 0,
     ))
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(report, indent=2))
+    out_path.write_text(json.dumps(report, indent=2), encoding='utf-8')
     return report
 
 

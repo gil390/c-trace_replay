@@ -8,7 +8,7 @@ from pathlib import Path
 
 def load_call_map(path):
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding='utf-8'))
     except json.JSONDecodeError as exc:
         raise RuntimeError(f'invalid JSON in {path}: {exc.msg}') from exc
     if not isinstance(data, dict):
@@ -322,8 +322,8 @@ def render_html(data):
     <main class="graph">
       <div class="toolbar">
         <button id="zoomIn" class="icon-btn" title="Zoom avant">+</button>
-        <button id="zoomOut" class="icon-btn" title="Zoom arrière">−</button>
-        <button id="resetView" class="icon-btn" title="Recentrer">⌂</button>
+        <button id="zoomOut" class="icon-btn" title="Zoom arriere">-</button>
+        <button id="resetView" class="icon-btn" title="Recentrer">R</button>
       </div>
       <canvas id="graph"></canvas>
     </main>
@@ -636,7 +636,7 @@ def render_html(data):
     while (ctx.measureText(value).width > maxWidth && value.length > 4) {{
       value = value.slice(0, -2);
     }}
-    if (value !== text) value += '…';
+    if (value !== text) value += '...';
     ctx.fillText(value, x, y);
   }}
 
@@ -748,7 +748,7 @@ def main():
     try:
         data = load_call_map(in_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(render_html(data))
+        out_path.write_text(render_html(data), encoding='utf-8')
     except Exception as exc:
         print(f'CALL_MAP_HTML ERROR: {exc}', file=sys.stderr)
         return 1
